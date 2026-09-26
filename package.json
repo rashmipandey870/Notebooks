@@ -1,0 +1,30 @@
+{
+  "name": "diksha-notebook-api",
+  "version": "1.0.0",
+  "description": "Class 8-12 Notebook & Textbook Provider API integrated with DIKSHA Portal across all Indian State Boards",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node test/api.test.js"
+  },
+  "keywords": [
+    "diksha",
+    "ncert",
+    "state-boards",
+    "class-8",
+    "class-9",
+    "class-10",
+    "class-11",
+    "class-12",
+    "textbook-api",
+    "notebook-api",
+    "education"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}
