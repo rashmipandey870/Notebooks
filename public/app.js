@@ -330,7 +330,7 @@ function loadPdfDocument(proxyUrl, initialPage = 1) {
     url: proxyUrl,
     cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
     cMapPacked: true
-  }).promise.then(pdf => {
+  }).promise.then(async pdf => {
     pdfDoc = pdf;
     let startPg = parseInt(initialPage, 10) || 1;
     if (startPg > pdfDoc.numPages) startPg = pdfDoc.numPages;
@@ -345,12 +345,179 @@ function loadPdfDocument(proxyUrl, initialPage = 1) {
     canvasWrapper.style.display = 'block';
 
     renderPdfPage(pdfPageNum);
+
+    // DUAL TOC FALLBACK: If official DIKSHA TOC is unavailable, extract embedded PDF outline or printed TOC
+    if (!currentBookChapters || currentBookChapters.length === 0) {
+      try {
+        const extractedChapters = await extractPdfTocOutline(pdfDoc);
+        if (extractedChapters && extractedChapters.length > 0) {
+          currentBookChapters = extractedChapters;
+          const sidebarList = document.getElementById('sidebar-chapter-list');
+          const chapterCount = document.getElementById('sidebar-chapter-count');
+
+          if (chapterCount) chapterCount.textContent = `${extractedChapters.length} Chapters`;
+          if (sidebarList) {
+            sidebarList.innerHTML = extractedChapters.map((ch, idx) => {
+              const levelIndent = (ch.level && ch.level > 1) ? `padding-left: ${Math.min((ch.level - 1) * 12 + 12, 48)}px; font-size: 0.85rem;` : '';
+              const levelBadge = (ch.level && ch.level > 1) ? `<span style="font-size:0.68rem; padding: 1px 4px; background:#e0f2fe; color:#0284c7; border-radius:3px; margin-right:4px; font-weight:600;">L${ch.level}</span>` : '';
+
+              return `
+                <div class="chapter-item ${idx === 0 ? 'active' : ''}" data-chapter-id="${ch.identifier}" style="${levelIndent}" onclick="handleChapterClick('${ch.identifier}')">
+                  <div class="chapter-item-title">${levelBadge}${escapeHtml(ch.title)}</div>
+                  <div class="chapter-item-meta">
+                    <span>Ch ${ch.chapterNumber}</span>
+                    <span style="color:#3b82f6;">Read &rarr;</span>
+                  </div>
+                </div>
+              `;
+            }).join('');
+          }
+        }
+      } catch (e) {
+        console.warn('PDF TOC Extraction error:', e);
+      }
+    }
   }).catch(err => {
     console.error('Error rendering PDF:', err);
     spinner.style.display = 'none';
     canvasWrapper.style.display = 'none';
     errorBox.style.display = 'flex';
   });
+}
+
+// PDF TOC Extraction Helpers
+async function resolveOutlineItemPage(pdf, item) {
+  if (!item || !item.dest) return null;
+  try {
+    let dest = item.dest;
+    if (typeof dest === 'string') {
+      dest = await pdf.getDestination(dest);
+    }
+    if (Array.isArray(dest) && dest.length > 0) {
+      const pageRef = dest[0];
+      if (typeof pageRef === 'object' && pageRef !== null) {
+        const pageIndex = await pdf.getPageIndex(pageRef);
+        return pageIndex + 1;
+      } else if (typeof pageRef === 'number') {
+        return pageRef + 1;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function scanPagesForPrintedToc(pdf) {
+  const chapters = [];
+  const maxPagesToScan = Math.min(pdf.numPages, 15);
+  let inTocSection = false;
+  let chNum = 1;
+
+  for (let p = 1; p <= maxPagesToScan; p++) {
+    try {
+      const page = await pdf.getPage(p);
+      const textContent = await page.getTextContent();
+      const lines = textContent.items.map(i => i.str.trim()).filter(Boolean);
+      const pageText = lines.join(' ');
+
+      if (!inTocSection) {
+        if (pageText.toUpperCase().includes('CONTENTS') || pageText.toUpperCase().includes('TABLE OF CONTENTS') || pageText.includes('विषय-सूची') || pageText.includes('विषय सूची')) {
+          inTocSection = true;
+        }
+      }
+
+      if (inTocSection) {
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+
+          const match = line.match(/^(?:Unit|Chapter|\d+[\.\s\:\-])\s*(\d+|[IVXLCDM]+)?[\.\s\:\-]?\s*([A-Za-z0-9\s\,\-\'\(\)\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F]+)/i);
+
+          if (match) {
+            const rawTitle = line.trim();
+
+            if (rawTitle.length > 3 && !rawTitle.toUpperCase().includes('CONTENTS') && !rawTitle.toUpperCase().includes('PAGE NO') && !rawTitle.toUpperCase().includes('SYLLABUS')) {
+              let startPg = null;
+              const pageMatch = rawTitle.match(/(\d+)\s*[\-\–\—]\s*(\d+)|(\d+)$/);
+              if (pageMatch) {
+                startPg = parseInt(pageMatch[1] || pageMatch[3], 10);
+              }
+
+              const exists = chapters.some(c => c.title.toLowerCase() === rawTitle.toLowerCase());
+              if (!exists) {
+                chapters.push({
+                  chapterNumber: chNum++,
+                  identifier: `printed_toc_${chNum}`,
+                  title: rawTitle,
+                  level: 1,
+                  startPage: startPg || p,
+                  endPage: (startPg || p) + 14,
+                  pdfUrl: currentPdfProxyUrl,
+                  proxyPdfUrl: currentPdfProxyUrl
+                });
+              }
+            }
+          }
+        }
+      }
+      if (chapters.length >= 20) break;
+    } catch (err) {}
+  }
+
+  return chapters;
+}
+
+async function extractPdfTocOutline(pdf) {
+  let extracted = [];
+
+  // 1. Try PDF embedded outline bookmarks
+  try {
+    const outline = await pdf.getOutline();
+    if (outline && Array.isArray(outline) && outline.length > 0) {
+      let chIdx = 1;
+      for (const item of outline) {
+        if (!item || !item.title) continue;
+        const pageNum = await resolveOutlineItemPage(pdf, item);
+        extracted.push({
+          chapterNumber: chIdx++,
+          identifier: `pdf_outline_${chIdx}`,
+          title: item.title.trim(),
+          level: 1,
+          startPage: pageNum || 1,
+          endPage: (pageNum || 1) + 14,
+          pdfUrl: currentPdfProxyUrl,
+          proxyPdfUrl: currentPdfProxyUrl
+        });
+
+        if (item.items && Array.isArray(item.items)) {
+          for (const subItem of item.items) {
+            if (!subItem || !subItem.title) continue;
+            const subPage = await resolveOutlineItemPage(pdf, subItem);
+            extracted.push({
+              chapterNumber: chIdx++,
+              identifier: `pdf_outline_${chIdx}`,
+              title: subItem.title.trim(),
+              level: 2,
+              startPage: subPage || pageNum || 1,
+              endPage: (subPage || pageNum || 1) + 14,
+              pdfUrl: currentPdfProxyUrl,
+              proxyPdfUrl: currentPdfProxyUrl
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {}
+
+  // 2. Fallback: Scan printed TOC on pages 1-15
+  if (extracted.length === 0) {
+    try {
+      const scanned = await scanPagesForPrintedToc(pdf);
+      if (scanned.length > 0) {
+        extracted = scanned;
+      }
+    } catch (err) {}
+  }
+
+  return extracted;
 }
 
 // PDF Page Renderer on HTML5 Canvas
