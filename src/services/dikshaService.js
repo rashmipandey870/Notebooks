@@ -760,13 +760,23 @@ async function searchDikshaBooks(options = {}) {
 
   if (board) {
     const boardObj = getBoardByCode(board);
-    filters.board = [boardObj ? boardObj.dikshaFilter : board];
+    filters.board = boardObj ? (boardObj.dikshaAliases || [boardObj.dikshaFilter]) : [board];
   }
 
   if (gradeLevel) {
-    filters.gradeLevel = Array.isArray(gradeLevel) 
-      ? gradeLevel.map(g => g.startsWith('Class') ? g : `Class ${g}`)
-      : [gradeLevel.startsWith('Class') ? gradeLevel : `Class ${gradeLevel}`];
+    const rawClass = Array.isArray(gradeLevel) ? gradeLevel[0] : gradeLevel;
+    const numMatch = String(rawClass).match(/\d+/);
+    const num = numMatch ? numMatch[0] : '';
+    const romanMap = { '8': 'VIII', '9': 'IX', '10': 'X', '11': 'XI', '12': 'XII' };
+    const roman = romanMap[num] || '';
+
+    filters.gradeLevel = [
+      rawClass.startsWith('Class') ? rawClass : `Class ${rawClass}`,
+      num ? `Class ${num}` : null,
+      roman ? `Class ${roman}` : null,
+      num ? `${num}th` : null,
+      num ? `${num}` : null
+    ].filter(Boolean);
   }
 
   if (medium) {
@@ -784,9 +794,9 @@ async function searchDikshaBooks(options = {}) {
       'Digital Textbook',
       'eTextbook',
       'TextBook',
-      'eTextBook'
+      'eTextBook',
+      'Learning Resource'
     ];
-    filters.targetContentType = ['TextBook', 'eTextBook'];
   }
 
   const payload = {
