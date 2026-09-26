@@ -818,11 +818,46 @@ async function searchDikshaBooks(options = {}) {
 
     const count = response.result ? (response.result.count || 0) : 0;
     const contents = response.result ? (response.result.content || []) : [];
-    const normalizedBooks = contents.map(normalizeDikshaItem).filter(Boolean);
+    let normalizedBooks = contents.map(normalizeDikshaItem).filter(Boolean);
+
+    // SMART BOARD FALLBACK: If strict board filter returned 0 books, search by state name / regional medium
+    if (normalizedBooks.length === 0 && board) {
+      const boardObj = getBoardByCode(board);
+      const fallbackMedium = (boardObj && boardObj.supportedMediums) ? boardObj.supportedMediums[0] : null;
+
+      const fallbackFilters = { ...filters };
+      delete fallbackFilters.board;
+      if (fallbackMedium && !medium) {
+        fallbackFilters.medium = [fallbackMedium];
+      }
+
+      const fallbackPayload = {
+        request: {
+          filters: fallbackFilters,
+          query: query || (boardObj ? boardObj.state : ''),
+          limit: parseInt(limit, 10) || 20,
+          offset: parseInt(offset, 10) || 0,
+          sort_by: { lastUpdatedOn: 'desc' }
+        }
+      };
+
+      try {
+        const fallbackRes = await makePostRequest('/content/v1/search', fallbackPayload);
+        if (fallbackRes && !fallbackRes.error && fallbackRes.result && fallbackRes.result.content) {
+          const fallbackContents = fallbackRes.result.content || [];
+          const fallbackBooks = fallbackContents.map(normalizeDikshaItem).filter(Boolean);
+          if (fallbackBooks.length > 0) {
+            normalizedBooks = fallbackBooks;
+          }
+        }
+      } catch (fErr) {
+        console.warn(`[SEARCH FALLBACK] Board search fallback failed: ${fErr.message}`);
+      }
+    }
 
     const resultData = {
       success: true,
-      total: count,
+      total: normalizedBooks.length > 0 ? (count || normalizedBooks.length) : 0,
       limit: parseInt(limit, 10),
       offset: parseInt(offset, 10),
       books: normalizedBooks
