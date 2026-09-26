@@ -321,6 +321,25 @@ function isIgnoredNodeTitle(name, mimeType, primaryCategory) {
     'collection',
     'textbook',
     'digital textbook',
+    'e-textbook',
+    'etextbook',
+    'text content',
+    'textual content',
+    'video content',
+    'audio content',
+    'interactive content',
+    'question bank',
+    'practice content',
+    'learning material',
+    'course material',
+    'study material',
+    'content',
+    'resources',
+    'materials',
+    'unit',
+    'module',
+    'pack',
+    'package',
     'mp4 video',
     'mp4',
     'video',
@@ -337,7 +356,7 @@ function isIgnoredNodeTitle(name, mimeType, primaryCategory) {
   ];
 
   if (ignoredNames.includes(clean)) return true;
-  if (clean.startsWith('mp4 video') || clean.startsWith('video -')) return true;
+  if (clean.startsWith('mp4 video') || clean.startsWith('video -') || clean.startsWith('e-textbook') || clean.startsWith('text content') || clean.startsWith('video content')) return true;
 
   const mime = (mimeType || '').toLowerCase();
   if (mime.includes('video') || mime.includes('audio') || mime.includes('image')) return true;
@@ -346,6 +365,26 @@ function isIgnoredNodeTitle(name, mimeType, primaryCategory) {
   if (cat.includes('video') || cat.includes('audio')) return true;
 
   return false;
+}
+
+/**
+ * Fuzzy Chapter Title Normalizer for deduplication
+ */
+function normalizeChapterTitleKey(title) {
+  if (!title || typeof title !== 'string') return '';
+  let clean = title.trim().toLowerCase();
+
+  // Strip chapter prefixes like "1- ", "chapter 1- ", "chapter 1: ", "lesson 1: ", "ch 1 ", "unit 1: ", "1. "
+  clean = clean.replace(/^(?:chapter|lesson|unit|ch|l)?\s*\d+[\.\s\:\-]+\s*/gi, '');
+  
+  // Strip non-alphanumeric characters except unicode scripts
+  clean = clean.replace(/[^a-z0-9\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F]/g, '');
+
+  if (clean.endsWith('s')) {
+    clean = clean.slice(0, -1);
+  }
+
+  return clean;
 }
 
 /**
@@ -363,10 +402,11 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
     const chapterPdfUrl = foundPdf || parentPdfUrl;
 
     const isIgnored = isIgnoredNodeTitle(title, node.mimeType, node.primaryCategory);
-    const isDuplicate = title && seenTitles.has(title.toLowerCase());
+    const titleKey = normalizeChapterTitleKey(title);
+    const isDuplicate = titleKey && seenTitles.has(titleKey);
 
     if (title && !isIgnored && !isDuplicate) {
-      seenTitles.add(title.toLowerCase());
+      if (titleKey) seenTitles.add(titleKey);
       const startPg = node.startPage || state.cumulativePage;
 
       if (!foundPdf) {
@@ -527,13 +567,22 @@ async function resolveBookReadingResource(bookId) {
 
   console.log(`DISCOVERED ${uniqueCandidates.length} CANDIDATE RESOURCE(S)`);
 
-  // Step 5: Perform binary PDF validation on candidates
+  // Step 5: Perform fast parallel binary PDF validation on candidates
   const validCandidates = [];
   const rejectedCandidates = [];
 
-  for (const cand of uniqueCandidates) {
+  // Sort candidates so book-level candidates are checked first
+  uniqueCandidates.sort((a, b) => (b.isBookLevel ? 1 : 0) - (a.isBookLevel ? 1 : 0));
+
+  const candidatesToTest = uniqueCandidates.slice(0, 10);
+  const validationResults = await Promise.all(
+    candidatesToTest.map(cand => 
+      validatePdfHeader(cand.url).then(check => ({ cand, check }))
+    )
+  );
+
+  for (const { cand, check } of validationResults) {
     console.log(`VALIDATING CANDIDATE: [${cand.title}] (${cand.source}) -> ${cand.url}`);
-    const check = await validatePdfHeader(cand.url);
     if (check.valid) {
       console.log(`  -> VALID PDF (%PDF- verified)`);
       cand.mimeType = check.mimeType || cand.mimeType;
