@@ -78,6 +78,49 @@ router.get('/books/:id', async (req, res) => {
   }
 });
 
+router.get('/books/:id/debug', async (req, res) => {
+  try {
+    const bookId = req.params.id;
+    const book = await getDikshaBookById(bookId);
+
+    if (!book) {
+      return res.status(404).json({
+        success: false,
+        message: `Book '${bookId}' not found.`
+      });
+    }
+
+    res.json({
+      bookId: book.id,
+      title: book.title,
+      board: book.board,
+      gradeLevel: book.gradeLevel,
+      subject: book.subject,
+      medium: book.medium,
+      pdfUrl: book.pdfUrl,
+      proxyPdfUrl: book.proxyPdfUrl,
+      downloadUrl: book.downloadUrl,
+      pdfValid: book.pdfValid,
+      chaptersCount: book.chapters ? book.chapters.length : 0,
+      chapters: (book.chapters || []).map(ch => ({
+        chapterNumber: ch.chapterNumber,
+        identifier: ch.identifier,
+        title: ch.title,
+        level: ch.level || 1,
+        startPage: ch.startPage,
+        endPage: ch.endPage,
+        pdfUrl: ch.pdfUrl,
+        proxyPdfUrl: ch.proxyPdfUrl
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
 router.get('/books/:id/debug-toc', async (req, res) => {
   try {
     const bookId = req.params.id;
@@ -102,6 +145,7 @@ router.get('/books/:id/debug-toc', async (req, res) => {
         chapterNumber: ch.chapterNumber,
         identifier: ch.identifier,
         title: ch.title,
+        level: ch.level || 1,
         startPage: ch.startPage,
         endPage: ch.endPage,
         pdfUrl: ch.pdfUrl,

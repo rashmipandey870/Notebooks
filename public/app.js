@@ -230,21 +230,26 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
       // Render Table of Contents
       if (currentBookChapters.length > 0) {
         chapterCount.textContent = `${currentBookChapters.length} Chapters`;
-        sidebarList.innerHTML = currentBookChapters.map((ch, idx) => `
-          <div class="chapter-item ${idx === 0 ? 'active' : ''}" data-chapter-id="${ch.identifier}" onclick="handleChapterClick('${ch.identifier}')">
-            <div class="chapter-item-title">${escapeHtml(ch.title)}</div>
-            <div class="chapter-item-meta">
-              <span>Chapter ${ch.chapterNumber}</span>
-              <span style="color:#3b82f6;">Read &rarr;</span>
+        sidebarList.innerHTML = currentBookChapters.map((ch, idx) => {
+          const levelIndent = (ch.level && ch.level > 1) ? `padding-left: ${Math.min((ch.level - 1) * 12 + 12, 48)}px; font-size: 0.85rem;` : '';
+          const levelBadge = (ch.level && ch.level > 1) ? `<span style="font-size:0.68rem; padding: 1px 4px; background:#e0f2fe; color:#0284c7; border-radius:3px; margin-right:4px; font-weight:600;">L${ch.level}</span>` : '';
+
+          return `
+            <div class="chapter-item ${idx === 0 ? 'active' : ''}" data-chapter-id="${ch.identifier}" style="${levelIndent}" onclick="handleChapterClick('${ch.identifier}')">
+              <div class="chapter-item-title">${levelBadge}${escapeHtml(ch.title)}</div>
+              <div class="chapter-item-meta">
+                <span>Ch ${ch.chapterNumber}</span>
+                <span style="color:#3b82f6;">Read &rarr;</span>
+              </div>
             </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       } else {
         chapterCount.textContent = 'No TOC';
         sidebarList.innerHTML = `
           <div style="padding: 1.5rem 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
             <i class="fa-solid fa-circle-info fa-2x" style="color:#94a3b8; margin-bottom: 0.5rem;"></i><br>
-            Table of Contents unavailable for this book
+            No table of contents is available for this book.
           </div>
         `;
       }

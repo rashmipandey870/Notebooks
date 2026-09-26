@@ -168,6 +168,71 @@ function normalizeDikshaItem(item) {
 }
 
 /**
+ * Recursively parse multi-level DIKSHA hierarchy nodes (Levels 1 to 4)
+ */
+function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1, cumulativePage: 1 }, grade = 'Class 10', subject = 'General') {
+  let chapters = [];
+  if (!Array.isArray(nodes)) return chapters;
+
+  for (const node of nodes) {
+    if (!node) continue;
+    const title = node.name ? node.name.trim() : `Section ${state.chapterNumber}`;
+    const foundPdf = findPdfUrlInNode(node);
+    const chapterPdfUrl = foundPdf || parentPdfUrl;
+    const startPg = node.startPage || state.cumulativePage;
+    
+    if (!foundPdf) {
+      state.cumulativePage += 15;
+    }
+
+    const currentChNum = state.chapterNumber;
+    state.chapterNumber++;
+
+    const proxyPdfUrl = chapterPdfUrl ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chapterPdfUrl)}` : null;
+    const downloadUrl = chapterPdfUrl ? `/api/v1/download?url=${encodeURIComponent(chapterPdfUrl)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${currentChNum}`)}` : null;
+
+    const chapterObj = {
+      chapterNumber: currentChNum,
+      identifier: node.identifier || `ch_${currentChNum}`,
+      title: title,
+      level: Math.min(Math.max(level, 1), 4),
+      startPage: startPg,
+      endPage: startPg + 14,
+      pdfUrl: chapterPdfUrl,
+      proxyPdfUrl: proxyPdfUrl,
+      downloadUrl: downloadUrl
+    };
+
+    chapters.push(chapterObj);
+
+    if (node.children && Array.isArray(node.children) && node.children.length > 0) {
+      const childChapters = parseDikshaHierarchyNodes(node.children, level + 1, chapterPdfUrl, state, grade, subject);
+      chapters = chapters.concat(childChapters);
+    }
+  }
+
+  return chapters;
+}
+
+function validateBookResource(book, resourceUrl) {
+  if (!resourceUrl || typeof resourceUrl !== 'string') return false;
+  if (resourceUrl === 'null' || resourceUrl === 'undefined') return false;
+  return resourceUrl.startsWith('http://') || resourceUrl.startsWith('https://') || resourceUrl.startsWith('/api/');
+}
+
+function validateBookTOC(book, tocChapters) {
+  if (!Array.isArray(tocChapters) || tocChapters.length === 0) return false;
+  return tocChapters.every(ch => ch && typeof ch.title === 'string' && ch.title.trim().length > 0);
+}
+
+function createNormalizedBookModel(item, chapters = []) {
+  const normalized = normalizeDikshaItem(item);
+  normalized.chapters = Array.isArray(chapters) ? chapters : [];
+  normalized.pdfValid = validateBookResource(normalized, normalized.pdfUrl) || normalized.chapters.some(c => validateBookResource(normalized, c.pdfUrl));
+  return normalized;
+}
+
+/**
  * Fetch authoritative hierarchical Table of Contents & Chapter PDF URLs from DIKSHA course hierarchy
  */
 async function fetchDikshaBookHierarchy(identifier, fallbackPdfUrl, grade, subject) {
@@ -181,34 +246,8 @@ async function fetchDikshaBookHierarchy(identifier, fallbackPdfUrl, grade, subje
     const children = root.children || [];
     if (children.length === 0) return [];
 
-    const chapters = [];
-    let cumulativePage = 1;
-
-    children.forEach((unit, idx) => {
-      const chapterTitle = unit.name ? unit.name.trim() : `Chapter ${idx + 1}`;
-      const foundPdf = findPdfUrlInNode(unit);
-      const chapterPdfUrl = foundPdf || fallbackPdfUrl;
-      const startPg = unit.startPage || cumulativePage;
-      if (!foundPdf) {
-        cumulativePage += 15;
-      }
-
-      const proxyPdfUrl = chapterPdfUrl ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chapterPdfUrl)}` : null;
-      const downloadUrl = chapterPdfUrl ? `/api/v1/download?url=${encodeURIComponent(chapterPdfUrl)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${idx + 1}`)}` : null;
-
-      chapters.push({
-        chapterNumber: idx + 1,
-        identifier: unit.identifier || `${identifier}_ch_${idx + 1}`,
-        title: chapterTitle,
-        startPage: startPg,
-        endPage: startPg + 14,
-        pdfUrl: chapterPdfUrl,
-        proxyPdfUrl: proxyPdfUrl,
-        downloadUrl: downloadUrl
-      });
-    });
-
-    return chapters;
+    const state = { chapterNumber: 1, cumulativePage: 1 };
+    return parseDikshaHierarchyNodes(children, 1, fallbackPdfUrl, state, grade, subject);
   } catch (err) {
     console.warn(`Course hierarchy lookup failed for ${identifier}: ${err.message}`);
     return [];
@@ -342,25 +381,8 @@ async function getDikshaBookById(identifier) {
 
     // 2. If hierarchy is empty, check rawContent.children
     if (chapters.length === 0 && rawContent.children && Array.isArray(rawContent.children) && rawContent.children.length > 0) {
-      let cumulativePage = 1;
-      chapters = rawContent.children.map((ch, idx) => {
-        const chName = ch.name ? ch.name.trim() : `Chapter ${idx + 1}`;
-        const foundPdf = findPdfUrlInNode(ch);
-        const chPdf = foundPdf || normalized.pdfUrl;
-        const startPg = ch.startPage || cumulativePage;
-        if (!foundPdf) cumulativePage += 15;
-
-        return {
-          chapterNumber: idx + 1,
-          identifier: ch.identifier || `${identifier}_ch_${idx + 1}`,
-          title: chName,
-          startPage: startPg,
-          endPage: startPg + 14,
-          pdfUrl: chPdf,
-          proxyPdfUrl: chPdf ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chPdf)}` : null,
-          downloadUrl: chPdf ? `/api/v1/download?url=${encodeURIComponent(chPdf)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${idx+1}`)}` : null
-        };
-      });
+      const state = { chapterNumber: 1, cumulativePage: 1 };
+      chapters = parseDikshaHierarchyNodes(rawContent.children, 1, normalized.pdfUrl, state, grade, subject);
     }
 
     // 3. If hierarchy is still empty, try parsing DIKSHA toc_url JSON structure
@@ -368,25 +390,8 @@ async function getDikshaBookById(identifier) {
       try {
         const tocData = await makeGetRequest(rawContent.toc_url);
         if (tocData && tocData.children && tocData.children.length > 0) {
-          let cumulativePage = 1;
-          chapters = tocData.children.map((ch, idx) => {
-            const chName = ch.name ? ch.name.trim() : `Chapter ${idx + 1}`;
-            const foundPdf = findPdfUrlInNode(ch);
-            const chPdf = foundPdf || normalized.pdfUrl;
-            const startPg = ch.startPage || cumulativePage;
-            if (!foundPdf) cumulativePage += 15;
-
-            return {
-              chapterNumber: idx + 1,
-              identifier: ch.identifier || `${identifier}_ch_${idx + 1}`,
-              title: chName,
-              startPage: startPg,
-              endPage: startPg + 14,
-              pdfUrl: chPdf,
-              proxyPdfUrl: chPdf ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chPdf)}` : null,
-              downloadUrl: chPdf ? `/api/v1/download?url=${encodeURIComponent(chPdf)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${idx+1}`)}` : null
-            };
-          });
+          const state = { chapterNumber: 1, cumulativePage: 1 };
+          chapters = parseDikshaHierarchyNodes(tocData.children, 1, normalized.pdfUrl, state, grade, subject);
         }
       } catch (tocErr) {
         console.warn(`Could not parse DIKSHA TOC for ${identifier}: ${tocErr.message}`);
@@ -394,10 +399,7 @@ async function getDikshaBookById(identifier) {
     }
 
     normalized.chapters = chapters;
-
-    // STEP 15: Validate whether book has ANY valid PDF resource
-    const hasValidPdf = !!normalized.pdfUrl || chapters.some(c => !!c.pdfUrl);
-    normalized.pdfValid = hasValidPdf;
+    normalized.pdfValid = validateBookResource(normalized, normalized.pdfUrl) || chapters.some(c => validateBookResource(normalized, c.pdfUrl));
 
     cache.set(cacheKey, { timestamp: Date.now(), data: normalized });
     return normalized;
@@ -411,5 +413,9 @@ module.exports = {
   searchDikshaBooks,
   getDikshaBookById,
   normalizeDikshaItem,
-  fetchDikshaBookHierarchy
+  fetchDikshaBookHierarchy,
+  parseDikshaHierarchyNodes,
+  validateBookResource,
+  validateBookTOC,
+  createNormalizedBookModel
 };
