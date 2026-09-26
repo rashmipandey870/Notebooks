@@ -80,6 +80,13 @@ function makeGetRequest(urlStr) {
 function normalizeDikshaItem(item) {
   if (!item) return null;
 
+  const isCollection = item.mimeType === 'application/vnd.ekstep.content-collection' || item.contentType === 'TextBook';
+  
+  // Official DIKSHA Player Web URL
+  const dikshaPlayerUrl = isCollection
+    ? `https://diksha.gov.in/resources/play/collection/${item.identifier}`
+    : `https://diksha.gov.in/resources/play/content/${item.identifier}`;
+
   let directPdfUrl = null;
   if (item.mimeType === 'application/pdf') {
     directPdfUrl = item.artifactUrl || item.downloadUrl;
@@ -89,10 +96,16 @@ function normalizeDikshaItem(item) {
     directPdfUrl = item.artifactUrl;
   }
 
-  // Generate local proxy URL for CORS safety
+  // Generate local proxy URL ONLY if it's a real PDF file
   const proxyPdfUrl = directPdfUrl 
     ? `/api/v1/pdf/proxy?url=${encodeURIComponent(directPdfUrl)}`
     : null;
+
+  // View URL: Use PDF proxy if direct PDF available, otherwise use DIKSHA Web Player URL
+  const viewUrl = proxyPdfUrl || dikshaPlayerUrl;
+
+  // Raw download URL for explicit download button
+  const downloadUrl = item.artifactUrl || item.downloadUrl || item.pdfUrl || dikshaPlayerUrl;
 
   return {
     id: item.identifier,
@@ -108,9 +121,11 @@ function normalizeDikshaItem(item) {
     mimeType: item.mimeType || 'application/pdf',
     posterImage: item.posterImage || item.appIcon || 'https://diksha.gov.in/assets/images/diksha-logo.png',
     artifactUrl: item.artifactUrl || null,
-    downloadUrl: item.downloadUrl || null,
+    downloadUrl: downloadUrl,
     directPdfUrl: directPdfUrl,
     proxyPdfUrl: proxyPdfUrl,
+    viewUrl: viewUrl,
+    dikshaPlayerUrl: dikshaPlayerUrl,
     tocUrl: item.toc_url || null,
     leafNodesCount: item.leafNodesCount || 0,
     createdOn: item.createdOn || null,
@@ -270,7 +285,8 @@ async function getDikshaBookById(identifier) {
               identifier: sub.identifier,
               title: sub.name,
               mimeType: sub.mimeType,
-              artifactUrl: sub.artifactUrl || sub.downloadUrl
+              artifactUrl: sub.artifactUrl || sub.downloadUrl,
+              dikshaUrl: `https://diksha.gov.in/resources/play/content/${sub.identifier}`
             })) : []
           }));
         }

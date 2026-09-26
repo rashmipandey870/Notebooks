@@ -95,7 +95,7 @@
         <div class="filter-group search-group">
           <label><i class="fa-solid fa-magnifying-glass"></i> Search Textbooks:</label>
           <div class="search-box">
-            <input type="text" id="search-input" placeholder="Search chapters, topics (e.g. Real Numbers, Light)..." onkeyup="handleSearchKey(event)">
+            <input type="text" id="search-input" placeholder="Search chapters, topics (e.g. Real Numbers, Flamingo)..." onkeyup="handleSearchKey(event)">
             <button class="btn-primary" onclick="applyFilters()"><i class="fa-solid fa-search"></i> Search</button>
           </div>
         </div>
@@ -221,16 +221,50 @@
     </section>
   </main>
 
-  <!-- PDF Reader Modal -->
+  <!-- Full DIKSHA-Style Book Reader Modal (Matches DIKSHA Collection Player Layout) -->
   <div class="modal" id="pdf-modal">
-    <div class="modal-content pdf-modal-content">
-      <div class="modal-header">
-        <h3 id="pdf-modal-title"><i class="fa-solid fa-file-pdf"></i> PDF Viewer</h3>
-        <button class="close-btn" onclick="closePdfModal()">&times;</button>
+    <div class="modal-content diksha-reader-modal">
+      
+      <!-- Top Reader Header Bar -->
+      <div class="diksha-reader-header">
+        <div class="reader-title-area">
+          <span class="reader-badge" id="reader-badge">DIKSHA Textbook</span>
+          <h3 id="pdf-modal-title" class="reader-book-title"><i class="fa-solid fa-book-open"></i> Book Title</h3>
+        </div>
+        <div class="reader-actions">
+          <a id="pdf-download-btn" href="#" target="_blank" download class="btn-reader-action download-btn">
+            <i class="fa-solid fa-download"></i> Download Book / PDF
+          </a>
+          <a id="pdf-external-btn" href="#" target="_blank" class="btn-reader-action external-btn">
+            <i class="fa-solid fa-arrow-up-right-from-square"></i> Open in DIKSHA Player
+          </a>
+          <button class="close-btn" onclick="closePdfModal()">&times;</button>
+        </div>
       </div>
-      <div class="modal-body pdf-body">
-        <iframe id="pdf-iframe" src="about:blank"></iframe>
+
+      <!-- Main Reader Body: Split Layout -->
+      <div class="diksha-reader-body">
+        
+        <!-- Left: Interactive Player Viewport -->
+        <div class="diksha-player-viewport">
+          <iframe id="pdf-iframe" src="about:blank" allowfullscreen></iframe>
+        </div>
+
+        <!-- Right: Chapter Index Sidebar -->
+        <div class="diksha-chapter-sidebar">
+          <div class="sidebar-header">
+            <h4><i class="fa-solid fa-list-ol"></i> Table of Contents</h4>
+            <span class="chapter-count" id="sidebar-chapter-count">Loading chapters...</span>
+          </div>
+          <div class="chapter-list-container" id="sidebar-chapter-list">
+            <div class="sidebar-loading">
+              <i class="fa-solid fa-spinner fa-spin"></i> Loading e-Textbook chapters...
+            </div>
+          </div>
+        </div>
+
       </div>
+
     </div>
   </div>
 

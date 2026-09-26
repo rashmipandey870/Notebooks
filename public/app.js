@@ -127,8 +127,9 @@ async function loadBooks() {
 function renderBooks(books) {
   const grid = document.getElementById('books-grid');
   grid.innerHTML = books.map(book => {
-    const pdfUrl = book.proxyPdfUrl || book.artifactUrl || book.downloadUrl;
-    const hasPdf = !!pdfUrl;
+    const viewUrl = book.viewUrl || book.dikshaPlayerUrl;
+    const downloadUrl = book.downloadUrl || book.dikshaPlayerUrl;
+    const dikshaPlayerUrl = book.dikshaPlayerUrl;
 
     return `
       <div class="book-card">
@@ -144,14 +145,12 @@ function renderBooks(books) {
           </div>
           <div class="book-desc">${escapeHtml(book.description)}</div>
           <div class="book-actions">
-            ${hasPdf ? `
-              <button class="btn-card primary" onclick="openPdfModal('${escapeHtml(book.title)}', '${encodeURIComponent(pdfUrl)}')">
-                <i class="fa-solid fa-book-reader"></i> Read PDF
-              </button>
-            ` : ''}
-            <button class="btn-card" onclick="openNotebookForBook('${escapeHtml(book.subject[0] || 'Mathematics')}', '${book.gradeLevel[0] || currentClass}')">
-              <i class="fa-solid fa-notes-medical"></i> Study Pack
+            <button class="btn-card primary" onclick="openBookModal('${escapeHtml(book.title)}', '${book.dikshaId}', '${encodeURIComponent(viewUrl)}', '${encodeURIComponent(downloadUrl)}', '${encodeURIComponent(dikshaPlayerUrl)}')">
+              <i class="fa-solid fa-book-reader"></i> Open Book
             </button>
+            <a href="${downloadUrl}" download target="_blank" class="btn-card download">
+              <i class="fa-solid fa-download"></i> Download
+            </a>
           </div>
         </div>
       </div>
@@ -159,16 +158,69 @@ function renderBooks(books) {
   }).join('');
 }
 
-// Open PDF Reader Modal
-function openPdfModal(title, url) {
+// Open Full DIKSHA-Style Book Reader Modal
+async function openBookModal(title, dikshaId, viewUrl, downloadUrl, dikshaPlayerUrl) {
   const modal = document.getElementById('pdf-modal');
   const modalTitle = document.getElementById('pdf-modal-title');
   const iframe = document.getElementById('pdf-iframe');
+  const downloadBtn = document.getElementById('pdf-download-btn');
+  const externalBtn = document.getElementById('pdf-external-btn');
+  const sidebarList = document.getElementById('sidebar-chapter-list');
+  const chapterCount = document.getElementById('sidebar-chapter-count');
 
-  const decodedUrl = decodeURIComponent(url);
-  modalTitle.innerHTML = `<i class="fa-solid fa-file-pdf"></i> ${title}`;
-  iframe.src = decodedUrl;
+  const decodedViewUrl = decodeURIComponent(viewUrl);
+  const decodedDownloadUrl = decodeURIComponent(downloadUrl);
+  const decodedPlayerUrl = decodeURIComponent(dikshaPlayerUrl);
+
+  modalTitle.innerHTML = `<i class="fa-solid fa-book-open"></i> ${title}`;
+  iframe.src = decodedViewUrl;
+  downloadBtn.href = decodedDownloadUrl;
+  externalBtn.href = decodedPlayerUrl;
+
+  sidebarList.innerHTML = '<div class="sidebar-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading e-Textbook chapters...</div>';
+  chapterCount.textContent = 'Fetching...';
   modal.classList.add('active');
+
+  // Fetch Table of Contents (TOC) for right sidebar
+  try {
+    const res = await fetch(`/api/v1/books/${dikshaId}`);
+    const data = await res.json();
+
+    if (data.success && data.book && data.book.chapters && data.book.chapters.length > 0) {
+      const chapters = data.book.chapters;
+      chapterCount.textContent = `${chapters.length} Chapters`;
+
+      sidebarList.innerHTML = chapters.map((ch, idx) => `
+        <div class="chapter-item ${idx === 0 ? 'active' : ''}" onclick="selectSidebarChapter('${ch.identifier}', '${encodeURIComponent(ch.title)}', this)">
+          <div class="chapter-item-title">${idx + 1}. ${escapeHtml(ch.title)}</div>
+          <div class="chapter-item-meta">
+            <span>${ch.subTopics ? ch.subTopics.length : 0} Sections</span>
+            <span style="color:#3b82f6;">Read Chapter &rarr;</span>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      chapterCount.textContent = 'Digital Textbook';
+      sidebarList.innerHTML = `
+        <div style="padding: 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
+          <i class="fa-solid fa-circle-check fa-2x" style="color:#10b981; margin-bottom: 0.5rem;"></i><br>
+          Full Digital Textbook Package Loaded
+        </div>
+      `;
+    }
+  } catch (err) {
+    chapterCount.textContent = 'Digital Content';
+    sidebarList.innerHTML = '<div style="padding: 1rem; color: #64748b; font-size: 0.8rem;">Chapter index loaded in main viewer.</div>';
+  }
+}
+
+// Select a specific chapter in sidebar
+function selectSidebarChapter(identifier, title, element) {
+  document.querySelectorAll('.chapter-item').forEach(el => el.classList.remove('active'));
+  element.classList.add('active');
+
+  const iframe = document.getElementById('pdf-iframe');
+  iframe.src = `https://diksha.gov.in/resources/play/content/${identifier}`;
 }
 
 function closePdfModal() {

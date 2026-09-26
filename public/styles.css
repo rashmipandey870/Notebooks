@@ -430,6 +430,7 @@ body {
   justify-content: center;
   gap: 6px;
   transition: all 0.2s;
+  text-decoration: none;
 }
 
 .btn-card:hover {
@@ -446,6 +447,196 @@ body {
 
 .btn-card.primary:hover {
   background: var(--primary-hover);
+}
+
+.btn-card.download {
+  background: #059669;
+  color: #fff;
+  border-color: #059669;
+}
+
+.btn-card.download:hover {
+  background: #047857;
+}
+
+/* DIKSHA Style Book Reader Modal */
+.diksha-reader-modal {
+  width: 95% !important;
+  max-width: 1400px !important;
+  height: 90vh !important;
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+
+.diksha-reader-header {
+  background: #0f172a;
+  color: #fff;
+  padding: 0.85rem 1.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.reader-title-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.reader-badge {
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 12px;
+}
+
+.reader-book-title {
+  font-size: 1.1rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reader-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-reader-action {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.btn-reader-action.download-btn {
+  background: #10b981;
+  color: #fff;
+}
+
+.btn-reader-action.download-btn:hover {
+  background: #059669;
+}
+
+.btn-reader-action.external-btn {
+  background: rgba(255, 255, 255, 0.15);
+  color: #e2e8f0;
+}
+
+.btn-reader-action.external-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.diksha-reader-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  overflow: hidden;
+  background: #f1f5f9;
+}
+
+.diksha-player-viewport {
+  height: 100%;
+  width: 100%;
+  background: #ffffff;
+  position: relative;
+}
+
+.diksha-player-viewport iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Chapter Index Sidebar */
+.diksha-chapter-sidebar {
+  background: #ffffff;
+  border-left: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  background: #f8fafc;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-header h4 {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chapter-count {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.chapter-list-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+.sidebar-loading {
+  text-align: center;
+  padding: 2rem;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.chapter-item {
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chapter-item:hover, .chapter-item.active {
+  background: #eff6ff;
+  border-color: #3b82f6;
+}
+
+.chapter-item-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+
+.chapter-item-meta {
+  font-size: 0.75rem;
+  color: #64748b;
+  display: flex;
+  justify-content: space-between;
 }
 
 /* Notebook View */
@@ -631,7 +822,7 @@ body {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(4px);
   z-index: 200;
   align-items: center;
@@ -649,24 +840,6 @@ body {
   max-width: 550px;
   overflow: hidden;
   box-shadow: var(--shadow-lg);
-}
-
-.pdf-modal-content {
-  max-width: 1000px;
-  height: 85vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.pdf-body {
-  flex: 1;
-  padding: 0 !important;
-}
-
-.pdf-body iframe {
-  width: 100%;
-  height: 100%;
-  border: none;
 }
 
 .modal-header {
