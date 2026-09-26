@@ -85,11 +85,11 @@ function handleSearchKey(event) {
   }
 }
 
-// Load Books from Backend / DIKSHA API
+// Load Books from Backend API
 async function loadBooks() {
   const grid = document.getElementById('books-grid');
   const countEl = document.getElementById('results-count');
-  grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 3rem; color: #64748b;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>Fetching books from DIKSHA portal...</div>';
+  grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 3rem; color: #64748b;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>Loading textbooks & digital notes...</div>';
 
   try {
     const params = new URLSearchParams({
@@ -106,7 +106,7 @@ async function loadBooks() {
     const data = await res.json();
 
     if (data.success && data.books && data.books.length > 0) {
-      countEl.innerHTML = `Found <strong>${data.total}</strong> DIKSHA textbooks & learning materials for <strong>${currentBoard}</strong> (${currentClass})`;
+      countEl.innerHTML = `Found <strong>${data.total}</strong> digital textbooks & learning materials for <strong>${currentBoard}</strong> (${currentClass})`;
       renderBooks(data.books);
     } else {
       countEl.innerHTML = `No books found for ${currentBoard} (${currentClass}).`;
@@ -127,9 +127,8 @@ async function loadBooks() {
 function renderBooks(books) {
   const grid = document.getElementById('books-grid');
   grid.innerHTML = books.map(book => {
-    const viewUrl = book.viewUrl || book.dikshaPlayerUrl;
-    const downloadUrl = book.downloadUrl || book.dikshaPlayerUrl;
-    const dikshaPlayerUrl = book.dikshaPlayerUrl;
+    const proxyPdfUrl = book.proxyPdfUrl;
+    const downloadUrl = book.downloadUrl || (book.rawAssetUrl ? `/api/v1/download?url=${encodeURIComponent(book.rawAssetUrl)}&filename=${encodeURIComponent(book.title)}` : '#');
 
     return `
       <div class="book-card">
@@ -145,7 +144,7 @@ function renderBooks(books) {
           </div>
           <div class="book-desc">${escapeHtml(book.description)}</div>
           <div class="book-actions">
-            <button class="btn-card primary" onclick="openBookModal('${escapeHtml(book.title)}', '${book.dikshaId}', '${encodeURIComponent(viewUrl)}', '${encodeURIComponent(downloadUrl)}', '${encodeURIComponent(dikshaPlayerUrl)}')">
+            <button class="btn-card primary" onclick="openBookModal('${escapeHtml(book.title)}', '${book.dikshaId}', '${encodeURIComponent(proxyPdfUrl || '')}', '${encodeURIComponent(downloadUrl)}')">
               <i class="fa-solid fa-book-reader"></i> Open Book
             </button>
             <a href="${downloadUrl}" download target="_blank" class="btn-card download">
@@ -158,69 +157,176 @@ function renderBooks(books) {
   }).join('');
 }
 
-// Open Full DIKSHA-Style Book Reader Modal
-async function openBookModal(title, dikshaId, viewUrl, downloadUrl, dikshaPlayerUrl) {
+// Open Native Self-Hosted Book Reader Modal
+async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloadUrl) {
   const modal = document.getElementById('pdf-modal');
   const modalTitle = document.getElementById('pdf-modal-title');
   const iframe = document.getElementById('pdf-iframe');
   const downloadBtn = document.getElementById('pdf-download-btn');
-  const externalBtn = document.getElementById('pdf-external-btn');
   const sidebarList = document.getElementById('sidebar-chapter-list');
   const chapterCount = document.getElementById('sidebar-chapter-count');
+  const viewportContainer = document.getElementById('reader-viewport-container');
 
-  const decodedViewUrl = decodeURIComponent(viewUrl);
-  const decodedDownloadUrl = decodeURIComponent(downloadUrl);
-  const decodedPlayerUrl = decodeURIComponent(dikshaPlayerUrl);
+  const proxyPdfUrl = decodeURIComponent(encodedProxyPdfUrl);
+  const downloadUrl = decodeURIComponent(encodedDownloadUrl);
 
   modalTitle.innerHTML = `<i class="fa-solid fa-book-open"></i> ${title}`;
-  iframe.src = decodedViewUrl;
-  downloadBtn.href = decodedDownloadUrl;
-  externalBtn.href = decodedPlayerUrl;
+  downloadBtn.href = downloadUrl;
 
-  sidebarList.innerHTML = '<div class="sidebar-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading e-Textbook chapters...</div>';
+  sidebarList.innerHTML = '<div class="sidebar-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading chapters...</div>';
   chapterCount.textContent = 'Fetching...';
   modal.classList.add('active');
 
-  // Fetch Table of Contents (TOC) for right sidebar
+  // Fetch detailed book metadata & TOC from local API
   try {
     const res = await fetch(`/api/v1/books/${dikshaId}`);
     const data = await res.json();
 
-    if (data.success && data.book && data.book.chapters && data.book.chapters.length > 0) {
-      const chapters = data.book.chapters;
+    let chapters = [];
+    if (data.success && data.book && data.book.chapters) {
+      chapters = data.book.chapters;
+    }
+
+    if (chapters.length > 0) {
       chapterCount.textContent = `${chapters.length} Chapters`;
 
-      sidebarList.innerHTML = chapters.map((ch, idx) => `
-        <div class="chapter-item ${idx === 0 ? 'active' : ''}" onclick="selectSidebarChapter('${ch.identifier}', '${encodeURIComponent(ch.title)}', this)">
-          <div class="chapter-item-title">${idx + 1}. ${escapeHtml(ch.title)}</div>
-          <div class="chapter-item-meta">
-            <span>${ch.subTopics ? ch.subTopics.length : 0} Sections</span>
-            <span style="color:#3b82f6;">Read Chapter &rarr;</span>
+      sidebarList.innerHTML = chapters.map((ch, idx) => {
+        const sub = (ch.subTopics && ch.subTopics.length > 0) ? ch.subTopics[0] : null;
+        const chProxyUrl = sub && sub.proxyUrl ? sub.proxyUrl : proxyPdfUrl;
+
+        return `
+          <div class="chapter-item ${idx === 0 ? 'active' : ''}" onclick="selectSidebarChapter('${ch.identifier}', '${escapeHtml(ch.title)}', '${encodeURIComponent(chProxyUrl || '')}', this)">
+            <div class="chapter-item-title">${idx + 1}. ${escapeHtml(ch.title)}</div>
+            <div class="chapter-item-meta">
+              <span>${ch.subTopics ? ch.subTopics.length : 0} Sections</span>
+              <span style="color:#3b82f6;">Read Chapter &rarr;</span>
+            </div>
           </div>
-        </div>
-      `).join('');
-    } else {
-      chapterCount.textContent = 'Digital Textbook';
+        `;
+      }).join('');
+
+      // Load first chapter or PDF proxy into viewport
+      const firstSub = (chapters[0].subTopics && chapters[0].subTopics.length > 0) ? chapters[0].subTopics[0] : null;
+      const initialProxy = (firstSub && firstSub.proxyUrl) ? firstSub.proxyUrl : proxyPdfUrl;
+
+      if (initialProxy) {
+        iframe.src = initialProxy;
+      } else {
+        showNativeChapterText(chapters[0].title, chapters[0].subTopics);
+      }
+    } else if (proxyPdfUrl) {
+      chapterCount.textContent = 'Full PDF';
       sidebarList.innerHTML = `
         <div style="padding: 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
           <i class="fa-solid fa-circle-check fa-2x" style="color:#10b981; margin-bottom: 0.5rem;"></i><br>
-          Full Digital Textbook Package Loaded
+          Full Digital PDF Loaded
         </div>
       `;
+      iframe.src = proxyPdfUrl;
+    } else {
+      chapterCount.textContent = 'Digital Book';
+      sidebarList.innerHTML = `
+        <div style="padding: 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
+          <i class="fa-solid fa-book-open fa-2x" style="color:#3b82f6; margin-bottom: 0.5rem;"></i><br>
+          Digital Textbook Package
+        </div>
+      `;
+      showNativeBookOverview(title, data.book);
     }
   } catch (err) {
     chapterCount.textContent = 'Digital Content';
-    sidebarList.innerHTML = '<div style="padding: 1rem; color: #64748b; font-size: 0.8rem;">Chapter index loaded in main viewer.</div>';
+    if (proxyPdfUrl) {
+      iframe.src = proxyPdfUrl;
+    } else {
+      showNativeBookOverview(title, null);
+    }
   }
 }
 
+// Render native interactive chapter text when direct PDF is not standalone
+function showNativeChapterText(chapterTitle, subTopics) {
+  const iframe = document.getElementById('pdf-iframe');
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+      <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; padding: 2rem; color: #1e293b; background: #ffffff; line-height: 1.6; }
+        h1 { color: #0f172a; font-size: 1.5rem; font-weight: 800; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem; margin-bottom: 1.5rem; }
+        .section-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
+        .section-title { font-weight: 700; font-size: 1.1rem; color: #2563eb; margin-bottom: 0.5rem; }
+        .btn-open { display: inline-block; background: #2563eb; color: #fff; font-weight: 700; font-size: 0.85rem; padding: 8px 16px; border-radius: 8px; text-decoration: none; margin-top: 0.5rem; }
+      </style>
+    </head>
+    <body>
+      <h1>${chapterTitle}</h1>
+      <p style="color: #64748b; margin-bottom: 1.5rem;">Interactive e-Textbook chapter sections and learning topics:</p>
+      ${(subTopics && subTopics.length > 0) ? subTopics.map(s => `
+        <div class="section-card">
+          <div class="section-title">${s.title}</div>
+          <p style="font-size: 0.9rem; color: #475569;">Interactive study section for this chapter.</p>
+          ${s.proxyUrl ? `<a href="${s.proxyUrl}" class="btn-open" target="_self">Open Section Asset</a>` : ''}
+        </div>
+      `).join('') : '<p>Full chapter contents loaded natively.</p>'}
+    </body>
+    </html>
+  `);
+  doc.close();
+}
+
+function showNativeBookOverview(title, bookObj) {
+  const iframe = document.getElementById('pdf-iframe');
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+      <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; padding: 2.5rem; color: #1e293b; background: #ffffff; line-height: 1.6; }
+        .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 1rem; margin-bottom: 1.5rem; }
+        h1 { color: #0f172a; font-size: 1.75rem; font-weight: 800; margin-bottom: 0.5rem; }
+        .meta { color: #2563eb; font-weight: 700; font-size: 0.95rem; }
+        .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; margin-top: 1.5rem; }
+        .btn { display: inline-block; background: #10b981; color: #fff; font-weight: 700; padding: 10px 20px; border-radius: 8px; text-decoration: none; margin-top: 1rem; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="meta">${(bookObj && bookObj.gradeLevel) ? bookObj.gradeLevel.join(', ') : 'Class 10'} &bull; ${(bookObj && bookObj.subject) ? bookObj.subject.join(', ') : 'Subject'}</div>
+        <h1>${title}</h1>
+      </div>
+      <p style="color: #475569; font-size: 1rem;">Complete digital textbook package. Use the Table of Contents sidebar on the right to navigate between chapters and sections.</p>
+      ${(bookObj && bookObj.downloadUrl) ? `
+        <div class="card">
+          <h3 style="font-weight: 800; margin-bottom: 0.5rem;">Offline Reading Package</h3>
+          <p style="font-size: 0.9rem; color: #64748b;">Download the complete e-Textbook file directly to your computer:</p>
+          <a href="${bookObj.downloadUrl}" class="btn" download>📥 Download Book Package</a>
+        </div>
+      ` : ''}
+    </body>
+    </html>
+  `);
+  doc.close();
+}
+
 // Select a specific chapter in sidebar
-function selectSidebarChapter(identifier, title, element) {
+function selectSidebarChapter(identifier, title, encodedProxyUrl, element) {
   document.querySelectorAll('.chapter-item').forEach(el => el.classList.remove('active'));
   element.classList.add('active');
 
+  const proxyUrl = decodeURIComponent(encodedProxyUrl);
   const iframe = document.getElementById('pdf-iframe');
-  iframe.src = `https://diksha.gov.in/resources/play/content/${identifier}`;
+
+  if (proxyUrl && proxyUrl !== 'null' && proxyUrl !== 'undefined') {
+    iframe.src = proxyUrl;
+  } else {
+    showNativeChapterText(title, []);
+  }
 }
 
 function closePdfModal() {

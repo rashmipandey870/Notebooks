@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Class 8-12 State Board Notebook Provider & DIKSHA Textbook Hub</title>
+  <title>Class 8-12 State Board Notebook & Textbook Portal</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
         <i class="fa-solid fa-book-bookmark logo-icon"></i>
         <div>
           <span class="logo-title">Notebook & Textbook Portal</span>
-          <span class="logo-subtitle">Class 8-12 State Boards & DIKSHA API</span>
+          <span class="logo-subtitle">Class 8-12 State Boards Learning Hub</span>
         </div>
       </div>
       <nav class="nav-links">
@@ -26,7 +26,7 @@
         <button class="nav-btn" onclick="switchTab('api-doc')"><i class="fa-solid fa-code"></i> API Explorer</button>
       </nav>
       <div class="status-badge">
-        <span class="status-dot"></span> DIKSHA Live Sync
+        <span class="status-dot"></span> System Online
       </div>
     </div>
   </header>
@@ -37,7 +37,7 @@
       <!-- Hero Banner -->
       <div class="hero">
         <h1>Class 8 to 12 State Board Notebook & Textbook Hub</h1>
-        <p>Access official NCERT & State Board digital textbooks, chapter revision notes, key formulas, and practice sets powered by DIKSHA APIs.</p>
+        <p>Access official NCERT & State Board digital textbooks, chapter revision notes, key formulas, and practice sets.</p>
 
         <!-- Board Selector Badges -->
         <div class="board-selector-title"><i class="fa-solid fa-landmark"></i> Select Board:</div>
@@ -221,22 +221,19 @@
     </section>
   </main>
 
-  <!-- Full DIKSHA-Style Book Reader Modal (Matches DIKSHA Collection Player Layout) -->
+  <!-- Native Self-Hosted Book Reader Modal -->
   <div class="modal" id="pdf-modal">
     <div class="modal-content diksha-reader-modal">
       
       <!-- Top Reader Header Bar -->
       <div class="diksha-reader-header">
         <div class="reader-title-area">
-          <span class="reader-badge" id="reader-badge">DIKSHA Textbook</span>
+          <span class="reader-badge" id="reader-badge">Self-Hosted Reader</span>
           <h3 id="pdf-modal-title" class="reader-book-title"><i class="fa-solid fa-book-open"></i> Book Title</h3>
         </div>
         <div class="reader-actions">
-          <a id="pdf-download-btn" href="#" target="_blank" download class="btn-reader-action download-btn">
-            <i class="fa-solid fa-download"></i> Download Book / PDF
-          </a>
-          <a id="pdf-external-btn" href="#" target="_blank" class="btn-reader-action external-btn">
-            <i class="fa-solid fa-arrow-up-right-from-square"></i> Open in DIKSHA Player
+          <a id="pdf-download-btn" href="#" download class="btn-reader-action download-btn">
+            <i class="fa-solid fa-download"></i> Download Book File
           </a>
           <button class="close-btn" onclick="closePdfModal()">&times;</button>
         </div>
@@ -245,8 +242,8 @@
       <!-- Main Reader Body: Split Layout -->
       <div class="diksha-reader-body">
         
-        <!-- Left: Interactive Player Viewport -->
-        <div class="diksha-player-viewport">
+        <!-- Left: Native Viewer Viewport -->
+        <div class="diksha-player-viewport" id="reader-viewport-container">
           <iframe id="pdf-iframe" src="about:blank" allowfullscreen></iframe>
         </div>
 

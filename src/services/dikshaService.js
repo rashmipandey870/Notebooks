@@ -80,12 +80,7 @@ function makeGetRequest(urlStr) {
 function normalizeDikshaItem(item) {
   if (!item) return null;
 
-  const isCollection = item.mimeType === 'application/vnd.ekstep.content-collection' || item.contentType === 'TextBook';
-  
-  // Official DIKSHA Player Web URL
-  const dikshaPlayerUrl = isCollection
-    ? `https://diksha.gov.in/resources/play/collection/${item.identifier}`
-    : `https://diksha.gov.in/resources/play/content/${item.identifier}`;
+  const rawAssetUrl = item.artifactUrl || item.downloadUrl || item.pdfUrl;
 
   let directPdfUrl = null;
   if (item.mimeType === 'application/pdf') {
@@ -96,22 +91,21 @@ function normalizeDikshaItem(item) {
     directPdfUrl = item.artifactUrl;
   }
 
-  // Generate local proxy URL ONLY if it's a real PDF file
+  // Self-hosted Local View Proxy URL
   const proxyPdfUrl = directPdfUrl 
     ? `/api/v1/pdf/proxy?url=${encodeURIComponent(directPdfUrl)}`
     : null;
 
-  // View URL: Use PDF proxy if direct PDF available, otherwise use DIKSHA Web Player URL
-  const viewUrl = proxyPdfUrl || dikshaPlayerUrl;
-
-  // Raw download URL for explicit download button
-  const downloadUrl = item.artifactUrl || item.downloadUrl || item.pdfUrl || dikshaPlayerUrl;
+  // Self-hosted Local Download URL
+  const localDownloadUrl = rawAssetUrl
+    ? `/api/v1/download?url=${encodeURIComponent(rawAssetUrl)}&filename=${encodeURIComponent(item.name || 'Textbook')}`
+    : null;
 
   return {
     id: item.identifier,
     dikshaId: item.identifier,
     title: item.name ? item.name.trim() : 'Untitled Textbook',
-    description: item.description || `Class ${item.gradeLevel ? item.gradeLevel.join(', ') : ''} ${item.subject ? item.subject.join(', ') : ''} learning resource from DIKSHA`,
+    description: item.description || `Class ${item.gradeLevel ? item.gradeLevel.join(', ') : ''} ${item.subject ? item.subject.join(', ') : ''} learning resource`,
     board: Array.isArray(item.board) ? item.board[0] : (item.board || 'Central/State Board'),
     gradeLevel: item.gradeLevel || [],
     subject: item.subject || [],
@@ -119,18 +113,17 @@ function normalizeDikshaItem(item) {
     contentType: item.contentType || 'TextBook',
     primaryCategory: item.primaryCategory || 'Digital Textbook',
     mimeType: item.mimeType || 'application/pdf',
-    posterImage: item.posterImage || item.appIcon || 'https://diksha.gov.in/assets/images/diksha-logo.png',
+    posterImage: item.posterImage || item.appIcon || null,
     artifactUrl: item.artifactUrl || null,
-    downloadUrl: downloadUrl,
+    rawAssetUrl: rawAssetUrl,
     directPdfUrl: directPdfUrl,
     proxyPdfUrl: proxyPdfUrl,
-    viewUrl: viewUrl,
-    dikshaPlayerUrl: dikshaPlayerUrl,
+    downloadUrl: localDownloadUrl,
     tocUrl: item.toc_url || null,
     leafNodesCount: item.leafNodesCount || 0,
     createdOn: item.createdOn || null,
     lastUpdatedOn: item.lastUpdatedOn || item.lastPublishedOn || null,
-    publisher: (item.originData && item.originData.organisation) ? item.originData.organisation[0] : (item.organisation ? item.organisation[0] : 'DIKSHA Portal')
+    publisher: (item.originData && item.originData.organisation) ? item.originData.organisation[0] : (item.organisation ? item.organisation[0] : 'Education Board')
   };
 }
 
@@ -217,7 +210,7 @@ async function searchDikshaBooks(options = {}) {
         success: false,
         total: 0,
         books: [],
-        message: `DIKSHA API returned status ${response.statusCode}`
+        message: `API search returned status ${response.statusCode}`
       };
     }
 
@@ -236,7 +229,7 @@ async function searchDikshaBooks(options = {}) {
     cache.set(cacheKey, { timestamp: Date.now(), data: resultData });
     return resultData;
   } catch (err) {
-    console.error('Error querying DIKSHA search API:', err.message);
+    console.error('Error querying backend search API:', err.message);
     return {
       success: false,
       total: 0,
@@ -247,7 +240,7 @@ async function searchDikshaBooks(options = {}) {
 }
 
 /**
- * Fetch detailed content/book by DIKSHA ID
+ * Fetch detailed content/book by ID
  */
 async function getDikshaBookById(identifier) {
   if (!identifier) return null;
@@ -281,13 +274,17 @@ async function getDikshaBookById(identifier) {
             identifier: ch.identifier,
             title: ch.name,
             topic: ch.topic || [],
-            subTopics: ch.children ? ch.children.map(sub => ({
-              identifier: sub.identifier,
-              title: sub.name,
-              mimeType: sub.mimeType,
-              artifactUrl: sub.artifactUrl || sub.downloadUrl,
-              dikshaUrl: `https://diksha.gov.in/resources/play/content/${sub.identifier}`
-            })) : []
+            subTopics: ch.children ? ch.children.map(sub => {
+              const subAssetUrl = sub.artifactUrl || sub.downloadUrl;
+              return {
+                identifier: sub.identifier,
+                title: sub.name,
+                mimeType: sub.mimeType,
+                assetUrl: subAssetUrl,
+                proxyUrl: subAssetUrl ? `/api/v1/pdf/proxy?url=${encodeURIComponent(subAssetUrl)}` : null,
+                downloadUrl: subAssetUrl ? `/api/v1/download?url=${encodeURIComponent(subAssetUrl)}&filename=${encodeURIComponent(sub.name || 'Chapter')}` : null
+              };
+            }) : []
           }));
         }
       } catch (tocErr) {
@@ -300,7 +297,7 @@ async function getDikshaBookById(identifier) {
     cache.set(cacheKey, { timestamp: Date.now(), data: normalized });
     return normalized;
   } catch (err) {
-    console.error(`Error fetching DIKSHA book ${identifier}:`, err.message);
+    console.error(`Error fetching book ${identifier}:`, err.message);
     return null;
   }
 }
