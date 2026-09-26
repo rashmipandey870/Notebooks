@@ -179,6 +179,10 @@ function renderBooks(books) {
   }).join('');
 }
 
+let currentBookId = null;
+let currentChapterId = null;
+let currentBookChapters = [];
+
 // Open Internal PDF.js Book Reader Modal
 async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloadUrl) {
   const modal = document.getElementById('pdf-modal');
@@ -187,10 +191,18 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
   const sidebarList = document.getElementById('sidebar-chapter-list');
   const chapterCount = document.getElementById('sidebar-chapter-count');
 
-  currentPdfTitle = title;
+  // Step 11: RESET STATE WHEN CHANGING BOOKS
+  pdfDoc = null;
+  currentBookId = dikshaId;
+  currentChapterId = null;
+  currentBookChapters = [];
   currentPdfProxyUrl = decodeURIComponent(encodedProxyPdfUrl);
   currentPdfDownloadUrl = decodeURIComponent(encodedDownloadUrl);
+  currentPdfTitle = title;
+  pdfPageNum = 1;
 
+  document.getElementById('pdf-page-count').textContent = '...';
+  document.getElementById('pdf-page-num').value = 1;
   modalTitle.innerHTML = `<i class="fa-solid fa-book-open"></i> ${escapeHtml(title)}`;
   downloadBtn.href = currentPdfDownloadUrl;
   document.getElementById('pdf-error-download-btn').href = currentPdfDownloadUrl;
@@ -199,24 +211,20 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
   chapterCount.textContent = 'Loading...';
   modal.classList.add('active');
 
-  // Load PDF Document in Viewer
-  loadPdfDocument(currentPdfProxyUrl);
-
-  // Fetch Table of Contents (TOC) for Left Sidebar
+  // Fetch Table of Contents (TOC) & Real Chapter Objects for Left Sidebar
   try {
     const res = await fetch(`/api/v1/books/${dikshaId}`);
     const data = await res.json();
 
-    let chapters = [];
     if (data.success && data.book && data.book.chapters) {
-      chapters = data.book.chapters;
+      currentBookChapters = data.book.chapters;
     }
 
-    if (chapters.length > 0) {
-      chapterCount.textContent = `${chapters.length} Chapters`;
+    if (currentBookChapters.length > 0) {
+      chapterCount.textContent = `${currentBookChapters.length} Chapters`;
 
-      sidebarList.innerHTML = chapters.map((ch, idx) => `
-        <div class="chapter-item ${idx === 0 ? 'active' : ''}" onclick="selectSidebarChapter('${ch.identifier}', '${escapeHtml(ch.title)}', '${encodeURIComponent(ch.proxyPdfUrl || currentPdfProxyUrl)}', this, ${ch.startPage || 1})">
+      sidebarList.innerHTML = currentBookChapters.map((ch, idx) => `
+        <div class="chapter-item ${idx === 0 ? 'active' : ''}" data-chapter-id="${ch.identifier}" onclick="handleChapterClick('${ch.identifier}')">
           <div class="chapter-item-title">${escapeHtml(ch.title)}</div>
           <div class="chapter-item-meta">
             <span>Chapter ${ch.chapterNumber}</span>
@@ -224,6 +232,13 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
           </div>
         </div>
       `).join('');
+
+      // Load initial PDF from the first chapter
+      const firstCh = currentBookChapters[0];
+      currentChapterId = firstCh.identifier;
+      const initialProxyUrl = firstCh.proxyPdfUrl || currentPdfProxyUrl;
+      currentPdfProxyUrl = initialProxyUrl;
+      loadPdfDocument(initialProxyUrl, firstCh.startPage || 1);
     } else {
       chapterCount.textContent = 'No TOC';
       sidebarList.innerHTML = `
@@ -232,6 +247,7 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
           Table of Contents unavailable for this book
         </div>
       `;
+      loadPdfDocument(currentPdfProxyUrl, 1);
     }
   } catch (err) {
     chapterCount.textContent = 'No TOC';
@@ -241,6 +257,7 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
         Table of Contents unavailable for this book
       </div>
     `;
+    loadPdfDocument(currentPdfProxyUrl, 1);
   }
 }
 
@@ -378,29 +395,45 @@ function retryPdfLoad() {
   loadPdfDocument(currentPdfProxyUrl);
 }
 
-// Select a specific chapter in sidebar
-function selectSidebarChapter(identifier, title, encodedProxyUrl, element, startPage) {
+// Step 12 & Step 22: Book-specific Chapter Click Handler
+function handleChapterClick(chapterId) {
+  const chapter = currentBookChapters.find(c => c.identifier === chapterId);
+  if (!chapter) return;
+
   document.querySelectorAll('.chapter-item').forEach(el => el.classList.remove('active'));
-  if (element) {
-    element.classList.add('active');
+  const activeEl = document.querySelector(`.chapter-item[data-chapter-id="${chapterId}"]`);
+  if (activeEl) {
+    activeEl.classList.add('active');
   }
 
-  const targetPage = parseInt(startPage, 10) || 1;
-  const proxyUrl = decodeURIComponent(encodedProxyUrl);
+  currentChapterId = chapterId;
+  const targetPage = parseInt(chapter.startPage, 10) || 1;
+  const proxyUrl = chapter.proxyPdfUrl || currentPdfProxyUrl;
 
-  if (proxyUrl && proxyUrl !== currentPdfProxyUrl && proxyUrl !== 'null' && proxyUrl !== 'undefined') {
+  // CASE A: If chapter has its own distinct PDF proxy URL, load that chapter PDF
+  if (proxyUrl && proxyUrl !== currentPdfProxyUrl) {
     currentPdfProxyUrl = proxyUrl;
     loadPdfDocument(proxyUrl, targetPage);
   } else if (pdfDoc) {
+    // CASE B: If entire textbook is in single loaded PDF, jump to startPage
     jumpToPdfPage(targetPage);
   } else {
-    loadPdfDocument(currentPdfProxyUrl, targetPage);
+    loadPdfDocument(proxyUrl, targetPage);
   }
+}
+
+// Select a specific chapter in sidebar (backward compatibility)
+function selectSidebarChapter(identifier, title, encodedProxyUrl, element, startPage) {
+  handleChapterClick(identifier);
 }
 
 function closePdfModal() {
   const modal = document.getElementById('pdf-modal');
   pdfDoc = null;
+  currentBookId = null;
+  currentChapterId = null;
+  currentBookChapters = [];
+  currentPdfProxyUrl = '';
   modal.classList.remove('active');
 }
 
