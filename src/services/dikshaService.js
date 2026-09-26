@@ -75,38 +75,56 @@ function makeGetRequest(urlStr) {
 }
 
 /**
- * Resolve direct PDF URL for DIKSHA item
+ * Recursively find PDF artifact URL inside hierarchy node tree
+ */
+function findPdfUrlInNode(node) {
+  if (!node) return null;
+  if (node.mimeType === 'application/pdf' && (node.artifactUrl || node.downloadUrl)) {
+    return node.artifactUrl || node.downloadUrl;
+  }
+  if (node.artifactUrl && typeof node.artifactUrl === 'string' && node.artifactUrl.toLowerCase().includes('.pdf')) {
+    return node.artifactUrl;
+  }
+  if (node.downloadUrl && typeof node.downloadUrl === 'string' && node.downloadUrl.toLowerCase().includes('.pdf')) {
+    return node.downloadUrl;
+  }
+  if (node.children && Array.isArray(node.children)) {
+    for (const child of node.children) {
+      const found = findPdfUrlInNode(child);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve direct PDF URL for DIKSHA item.
+ * STRICT DATA INTEGRITY RULE: Returns null if item does not have a genuine PDF resource.
+ * NO SILENT FALLBACK TO DUMMY / NCERT / REAL NUMBERS PDFS!
  */
 function resolvePdfUrlForItem(item) {
-  if (!item) return 'https://ncert.nic.in/textbook/pdf/jemh101.pdf';
+  if (!item) return null;
 
   if (item.mimeType === 'application/pdf' && (item.artifactUrl || item.downloadUrl)) {
     return item.artifactUrl || item.downloadUrl;
   }
-  if (item.pdfUrl) {
+  if (item.pdfUrl && typeof item.pdfUrl === 'string' && item.pdfUrl.length > 5) {
     return item.pdfUrl;
   }
-  if (item.artifactUrl && item.artifactUrl.toLowerCase().endsWith('.pdf')) {
+  if (item.artifactUrl && typeof item.artifactUrl === 'string' && item.artifactUrl.toLowerCase().includes('.pdf')) {
     return item.artifactUrl;
   }
-  if (item.downloadUrl && item.downloadUrl.toLowerCase().endsWith('.pdf')) {
+  if (item.downloadUrl && typeof item.downloadUrl === 'string' && item.downloadUrl.toLowerCase().includes('.pdf')) {
     return item.downloadUrl;
   }
 
-  const grade = Array.isArray(item.gradeLevel) ? item.gradeLevel[0] : (item.gradeLevel || 'Class 10');
-  const subject = Array.isArray(item.subject) ? item.subject[0] : (item.subject || 'Mathematics');
+  // Check if item has children or leafNodes containing a PDF
+  if (item.children && Array.isArray(item.children)) {
+    const childPdf = findPdfUrlInNode(item);
+    if (childPdf) return childPdf;
+  }
 
-  if (grade === 'Class 12' && subject === 'History') return 'https://ncert.nic.in/textbook/pdf/lehs101.pdf';
-  if (grade === 'Class 12' && subject === 'Physics') return 'https://ncert.nic.in/textbook/pdf/leph101.pdf';
-  if (grade === 'Class 12' && subject === 'Chemistry') return 'https://ncert.nic.in/textbook/pdf/lech101.pdf';
-  if (grade === 'Class 12' && subject === 'Biology') return 'https://ncert.nic.in/textbook/pdf/lebo101.pdf';
-  if (grade === 'Class 12' && subject === 'English') return 'https://ncert.nic.in/textbook/pdf/lefl101.pdf';
-
-  if (grade === 'Class 10' && subject === 'Science') return 'https://ncert.nic.in/textbook/pdf/jesc101.pdf';
-  if (grade === 'Class 10' && subject === 'Geography') return 'https://ncert.nic.in/textbook/pdf/jess101.pdf';
-  if (grade === 'Class 10' && subject === 'History') return 'https://ncert.nic.in/textbook/pdf/jess301.pdf';
-
-  return 'https://ncert.nic.in/textbook/pdf/jemh101.pdf';
+  return null;
 }
 
 /**
@@ -120,9 +138,9 @@ function normalizeDikshaItem(item) {
   const subject = Array.isArray(item.subject) ? item.subject[0] : (item.subject || 'General');
   const board = Array.isArray(item.board) ? item.board[0] : (item.board || 'Central/State Board');
 
-  const proxyPdfUrl = `/api/v1/pdf/proxy?url=${encodeURIComponent(resolvedPdf)}`;
-  const cleanFilename = `${grade}_${subject}_${board}_NCERT`.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const downloadUrl = `/api/v1/download?url=${encodeURIComponent(resolvedPdf)}&filename=${encodeURIComponent(cleanFilename)}`;
+  const proxyPdfUrl = resolvedPdf ? `/api/v1/pdf/proxy?url=${encodeURIComponent(resolvedPdf)}` : null;
+  const cleanFilename = `${grade}_${subject}_${board}_Textbook`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const downloadUrl = resolvedPdf ? `/api/v1/download?url=${encodeURIComponent(resolvedPdf)}&filename=${encodeURIComponent(cleanFilename)}` : null;
 
   return {
     id: item.identifier,
@@ -140,35 +158,13 @@ function normalizeDikshaItem(item) {
     pdfUrl: resolvedPdf,
     proxyPdfUrl: proxyPdfUrl,
     downloadUrl: downloadUrl,
+    pdfValid: !!resolvedPdf,
     tocUrl: item.toc_url || null,
-    leafNodesCount: item.leafNodesCount || 10,
+    leafNodesCount: item.leafNodesCount || 0,
     createdOn: item.createdOn || null,
     lastUpdatedOn: item.lastUpdatedOn || item.lastPublishedOn || null,
     publisher: (item.originData && item.originData.organisation) ? item.originData.organisation[0] : (item.organisation ? item.organisation[0] : 'NCERT')
   };
-}
-
-/**
- * Recursively find PDF artifact URL inside hierarchy node tree
- */
-function findPdfUrlInNode(node) {
-  if (!node) return null;
-  if (node.mimeType === 'application/pdf' && (node.artifactUrl || node.downloadUrl)) {
-    return node.artifactUrl || node.downloadUrl;
-  }
-  if (node.artifactUrl && node.artifactUrl.toLowerCase().endsWith('.pdf')) {
-    return node.artifactUrl;
-  }
-  if (node.downloadUrl && node.downloadUrl.toLowerCase().endsWith('.pdf')) {
-    return node.downloadUrl;
-  }
-  if (node.children && Array.isArray(node.children)) {
-    for (const child of node.children) {
-      const found = findPdfUrlInNode(child);
-      if (found) return found;
-    }
-  }
-  return null;
 }
 
 /**
@@ -190,14 +186,15 @@ async function fetchDikshaBookHierarchy(identifier, fallbackPdfUrl, grade, subje
 
     children.forEach((unit, idx) => {
       const chapterTitle = unit.name ? unit.name.trim() : `Chapter ${idx + 1}`;
-      const chapterPdfUrl = findPdfUrlInNode(unit) || fallbackPdfUrl;
+      const foundPdf = findPdfUrlInNode(unit);
+      const chapterPdfUrl = foundPdf || fallbackPdfUrl;
       const startPg = unit.startPage || cumulativePage;
-      if (!findPdfUrlInNode(unit)) {
+      if (!foundPdf) {
         cumulativePage += 15;
       }
 
-      const proxyPdfUrl = `/api/v1/pdf/proxy?url=${encodeURIComponent(chapterPdfUrl)}`;
-      const downloadUrl = `/api/v1/download?url=${encodeURIComponent(chapterPdfUrl)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${idx + 1}`)}`;
+      const proxyPdfUrl = chapterPdfUrl ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chapterPdfUrl)}` : null;
+      const downloadUrl = chapterPdfUrl ? `/api/v1/download?url=${encodeURIComponent(chapterPdfUrl)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${idx + 1}`)}` : null;
 
       chapters.push({
         chapterNumber: idx + 1,
@@ -219,7 +216,7 @@ async function fetchDikshaBookHierarchy(identifier, fallbackPdfUrl, grade, subje
 }
 
 /**
- * Search textbooks & notebooks
+ * Search textbooks & notebooks across DIKSHA portal
  */
 async function searchDikshaBooks(options = {}) {
   const {
@@ -336,7 +333,7 @@ async function getDikshaBookById(identifier) {
     const normalized = normalizeDikshaItem(rawContent);
 
     const grade = (normalized.gradeLevel && normalized.gradeLevel[0]) ? normalized.gradeLevel[0] : 'Class 10';
-    const subject = (normalized.subject && normalized.subject[0]) ? normalized.subject[0] : 'Mathematics';
+    const subject = (normalized.subject && normalized.subject[0]) ? normalized.subject[0] : 'General';
 
     let chapters = [];
 
@@ -348,9 +345,10 @@ async function getDikshaBookById(identifier) {
       let cumulativePage = 1;
       chapters = rawContent.children.map((ch, idx) => {
         const chName = ch.name ? ch.name.trim() : `Chapter ${idx + 1}`;
-        const chPdf = findPdfUrlInNode(ch) || normalized.pdfUrl;
+        const foundPdf = findPdfUrlInNode(ch);
+        const chPdf = foundPdf || normalized.pdfUrl;
         const startPg = ch.startPage || cumulativePage;
-        if (!findPdfUrlInNode(ch)) cumulativePage += 15;
+        if (!foundPdf) cumulativePage += 15;
 
         return {
           chapterNumber: idx + 1,
@@ -359,8 +357,8 @@ async function getDikshaBookById(identifier) {
           startPage: startPg,
           endPage: startPg + 14,
           pdfUrl: chPdf,
-          proxyPdfUrl: `/api/v1/pdf/proxy?url=${encodeURIComponent(chPdf)}`,
-          downloadUrl: `/api/v1/download?url=${encodeURIComponent(chPdf)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${idx+1}`)}`
+          proxyPdfUrl: chPdf ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chPdf)}` : null,
+          downloadUrl: chPdf ? `/api/v1/download?url=${encodeURIComponent(chPdf)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${idx+1}`)}` : null
         };
       });
     }
@@ -373,9 +371,10 @@ async function getDikshaBookById(identifier) {
           let cumulativePage = 1;
           chapters = tocData.children.map((ch, idx) => {
             const chName = ch.name ? ch.name.trim() : `Chapter ${idx + 1}`;
-            const chPdf = findPdfUrlInNode(ch) || normalized.pdfUrl;
+            const foundPdf = findPdfUrlInNode(ch);
+            const chPdf = foundPdf || normalized.pdfUrl;
             const startPg = ch.startPage || cumulativePage;
-            if (!findPdfUrlInNode(ch)) cumulativePage += 15;
+            if (!foundPdf) cumulativePage += 15;
 
             return {
               chapterNumber: idx + 1,
@@ -384,8 +383,8 @@ async function getDikshaBookById(identifier) {
               startPage: startPg,
               endPage: startPg + 14,
               pdfUrl: chPdf,
-              proxyPdfUrl: `/api/v1/pdf/proxy?url=${encodeURIComponent(chPdf)}`,
-              downloadUrl: `/api/v1/download?url=${encodeURIComponent(chPdf)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${idx+1}`)}`
+              proxyPdfUrl: chPdf ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chPdf)}` : null,
+              downloadUrl: chPdf ? `/api/v1/download?url=${encodeURIComponent(chPdf)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${idx+1}`)}` : null
             };
           });
         }
@@ -395,6 +394,10 @@ async function getDikshaBookById(identifier) {
     }
 
     normalized.chapters = chapters;
+
+    // STEP 15: Validate whether book has ANY valid PDF resource
+    const hasValidPdf = !!normalized.pdfUrl || chapters.some(c => !!c.pdfUrl);
+    normalized.pdfValid = hasValidPdf;
 
     cache.set(cacheKey, { timestamp: Date.now(), data: normalized });
     return normalized;

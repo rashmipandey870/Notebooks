@@ -190,16 +190,23 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
   const downloadBtn = document.getElementById('pdf-download-btn');
   const sidebarList = document.getElementById('sidebar-chapter-list');
   const chapterCount = document.getElementById('sidebar-chapter-count');
+  const spinner = document.getElementById('pdf-loading-spinner');
+  const errorBox = document.getElementById('pdf-error-container');
+  const canvasWrapper = document.getElementById('pdf-canvas-wrapper');
 
-  // Step 11: RESET STATE WHEN CHANGING BOOKS
+  // STEP 5: RESET ALL PDF & BOOK STATE BEFORE LOADING NEW BOOK
   pdfDoc = null;
   currentBookId = dikshaId;
   currentChapterId = null;
   currentBookChapters = [];
-  currentPdfProxyUrl = decodeURIComponent(encodedProxyPdfUrl);
+  currentPdfProxyUrl = '';
   currentPdfDownloadUrl = decodeURIComponent(encodedDownloadUrl);
   currentPdfTitle = title;
   pdfPageNum = 1;
+
+  spinner.style.display = 'flex';
+  errorBox.style.display = 'none';
+  canvasWrapper.style.display = 'none';
 
   document.getElementById('pdf-page-count').textContent = '...';
   document.getElementById('pdf-page-num').value = 1;
@@ -216,48 +223,60 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
     const res = await fetch(`/api/v1/books/${dikshaId}`);
     const data = await res.json();
 
-    if (data.success && data.book && data.book.chapters) {
-      currentBookChapters = data.book.chapters;
-    }
+    if (data.success && data.book) {
+      const book = data.book;
+      currentBookChapters = book.chapters || [];
 
-    if (currentBookChapters.length > 0) {
-      chapterCount.textContent = `${currentBookChapters.length} Chapters`;
-
-      sidebarList.innerHTML = currentBookChapters.map((ch, idx) => `
-        <div class="chapter-item ${idx === 0 ? 'active' : ''}" data-chapter-id="${ch.identifier}" onclick="handleChapterClick('${ch.identifier}')">
-          <div class="chapter-item-title">${escapeHtml(ch.title)}</div>
-          <div class="chapter-item-meta">
-            <span>Chapter ${ch.chapterNumber}</span>
-            <span style="color:#3b82f6;">Read &rarr;</span>
+      // Render Table of Contents
+      if (currentBookChapters.length > 0) {
+        chapterCount.textContent = `${currentBookChapters.length} Chapters`;
+        sidebarList.innerHTML = currentBookChapters.map((ch, idx) => `
+          <div class="chapter-item ${idx === 0 ? 'active' : ''}" data-chapter-id="${ch.identifier}" onclick="handleChapterClick('${ch.identifier}')">
+            <div class="chapter-item-title">${escapeHtml(ch.title)}</div>
+            <div class="chapter-item-meta">
+              <span>Chapter ${ch.chapterNumber}</span>
+              <span style="color:#3b82f6;">Read &rarr;</span>
+            </div>
           </div>
-        </div>
-      `).join('');
+        `).join('');
+      } else {
+        chapterCount.textContent = 'No TOC';
+        sidebarList.innerHTML = `
+          <div style="padding: 1.5rem 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
+            <i class="fa-solid fa-circle-info fa-2x" style="color:#94a3b8; margin-bottom: 0.5rem;"></i><br>
+            Table of Contents unavailable for this book
+          </div>
+        `;
+      }
 
-      // Load initial PDF from the first chapter
-      const firstCh = currentBookChapters[0];
-      currentChapterId = firstCh.identifier;
-      const initialProxyUrl = firstCh.proxyPdfUrl || currentPdfProxyUrl;
-      currentPdfProxyUrl = initialProxyUrl;
-      loadPdfDocument(initialProxyUrl, firstCh.startPage || 1);
-    } else {
-      chapterCount.textContent = 'No TOC';
-      sidebarList.innerHTML = `
-        <div style="padding: 1.5rem 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
-          <i class="fa-solid fa-circle-info fa-2x" style="color:#94a3b8; margin-bottom: 0.5rem;"></i><br>
-          Table of Contents unavailable for this book
-        </div>
-      `;
-      loadPdfDocument(currentPdfProxyUrl, 1);
+      // STEP 15 & 29: Resolve PDF resource strictly for THIS book instance
+      const firstChWithPdf = currentBookChapters.find(c => c.proxyPdfUrl && c.proxyPdfUrl !== 'null');
+      const activeProxyUrl = (firstChWithPdf && firstChWithPdf.proxyPdfUrl) || (book.proxyPdfUrl !== 'null' ? book.proxyPdfUrl : null);
+
+      if (activeProxyUrl && activeProxyUrl !== 'null' && activeProxyUrl !== 'undefined') {
+        currentPdfProxyUrl = activeProxyUrl;
+        loadPdfDocument(activeProxyUrl, (firstChWithPdf && firstChWithPdf.startPage) || 1);
+      } else {
+        // BOOK RESOURCE MISMATCH / MISSING PDF: Show clear error state
+        spinner.style.display = 'none';
+        canvasWrapper.style.display = 'none';
+        errorBox.style.display = 'flex';
+        errorBox.innerHTML = `
+          <i class="fa-solid fa-triangle-exclamation fa-3x" style="color: #f59e0b;"></i>
+          <h4 style="margin-top: 1rem; font-weight: 800; color: #0f172a; font-size: 1.1rem;">Textbook PDF Resource Unavailable</h4>
+          <p style="color: #64748b; font-size: 0.9rem; margin: 0.5rem 0 1.25rem 0; max-width: 480px; line-height: 1.5;">
+            The PDF file for "<strong>${escapeHtml(book.title)}</strong>" (${escapeHtml(book.board)}) is currently unavailable on the DIKSHA portal.
+          </p>
+          <div style="display: flex; gap: 10px;">
+            <button onclick="closePdfModal()" class="btn-primary"><i class="fa-solid fa-arrow-left"></i> Back to Textbooks</button>
+          </div>
+        `;
+      }
     }
   } catch (err) {
-    chapterCount.textContent = 'No TOC';
-    sidebarList.innerHTML = `
-      <div style="padding: 1.5rem 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
-        <i class="fa-solid fa-circle-info fa-2x" style="color:#94a3b8; margin-bottom: 0.5rem;"></i><br>
-        Table of Contents unavailable for this book
-      </div>
-    `;
-    loadPdfDocument(currentPdfProxyUrl, 1);
+    spinner.style.display = 'none';
+    canvasWrapper.style.display = 'none';
+    errorBox.style.display = 'flex';
   }
 }
 
@@ -266,6 +285,13 @@ function loadPdfDocument(proxyUrl, initialPage = 1) {
   const spinner = document.getElementById('pdf-loading-spinner');
   const errorBox = document.getElementById('pdf-error-container');
   const canvasWrapper = document.getElementById('pdf-canvas-wrapper');
+
+  if (!proxyUrl || proxyUrl === 'null' || proxyUrl === 'undefined') {
+    spinner.style.display = 'none';
+    canvasWrapper.style.display = 'none';
+    errorBox.style.display = 'flex';
+    return;
+  }
 
   spinner.style.display = 'flex';
   errorBox.style.display = 'none';
@@ -293,6 +319,7 @@ function loadPdfDocument(proxyUrl, initialPage = 1) {
   }).catch(err => {
     console.error('Error rendering PDF:', err);
     spinner.style.display = 'none';
+    canvasWrapper.style.display = 'none';
     errorBox.style.display = 'flex';
   });
 }
@@ -408,16 +435,16 @@ function handleChapterClick(chapterId) {
 
   currentChapterId = chapterId;
   const targetPage = parseInt(chapter.startPage, 10) || 1;
-  const proxyUrl = chapter.proxyPdfUrl || currentPdfProxyUrl;
+  const proxyUrl = chapter.proxyPdfUrl;
 
   // CASE A: If chapter has its own distinct PDF proxy URL, load that chapter PDF
-  if (proxyUrl && proxyUrl !== currentPdfProxyUrl) {
+  if (proxyUrl && proxyUrl !== currentPdfProxyUrl && proxyUrl !== 'null') {
     currentPdfProxyUrl = proxyUrl;
     loadPdfDocument(proxyUrl, targetPage);
   } else if (pdfDoc) {
     // CASE B: If entire textbook is in single loaded PDF, jump to startPage
     jumpToPdfPage(targetPage);
-  } else {
+  } else if (proxyUrl && proxyUrl !== 'null') {
     loadPdfDocument(proxyUrl, targetPage);
   }
 }
