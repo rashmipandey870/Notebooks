@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
 
 const boardsRouter = require('./routes/boards');
@@ -15,6 +16,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve static website frontend
+app.use(express.static(path.join(__dirname, '../public')));
 
 // API Router registration (v1)
 app.use('/api/v1', boardsRouter);
@@ -34,35 +38,16 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Root route API sitemap & welcome response
+// Root route fallback to static index.html or API information
 app.get('/', (req, res) => {
-  res.json({
-    name: 'Class 8-12 Notebook & State Board Textbook Provider API',
-    version: '1.0.0',
-    status: 'Active',
-    documentation: '/api/v1/boards',
-    endpoints: {
-      health: 'GET /api/health',
-      boards: 'GET /api/v1/boards',
-      boardDetail: 'GET /api/v1/boards/:code',
-      classes: 'GET /api/v1/classes',
-      subjects: 'GET /api/v1/subjects',
-      mediums: 'GET /api/v1/mediums',
-      searchBooks: 'GET /api/v1/books',
-      bookDetail: 'GET /api/v1/books/:id',
-      chapterNotebook: 'GET /api/v1/notebooks/chapter',
-      pdfProxy: 'GET /api/v1/pdf/proxy?url=<pdf_url>',
-      getNotes: 'GET /api/v1/notes',
-      createNote: 'POST /api/v1/notes'
-    }
-  });
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `Endpoint '${req.originalUrl}' not found. Refer to GET / for API documentation.`
+    message: `Endpoint '${req.originalUrl}' not found. Refer to GET /api/v1/boards for documentation.`
   });
 });
 
@@ -76,7 +61,7 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
+  console.log(`Website & API Server listening on http://localhost:${PORT}`);
   console.log(`API Base Path: http://localhost:${PORT}/api/v1`);
 });
 

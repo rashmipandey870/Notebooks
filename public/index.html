@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Class 8-12 State Board Notebook Provider & DIKSHA Textbook Hub</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Header -->
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="logo-area">
+        <i class="fa-solid fa-book-bookmark logo-icon"></i>
+        <div>
+          <span class="logo-title">Notebook & Textbook Portal</span>
+          <span class="logo-subtitle">Class 8-12 State Boards & DIKSHA API</span>
+        </div>
+      </div>
+      <nav class="nav-links">
+        <button class="nav-btn active" onclick="switchTab('explorer')"><i class="fa-solid fa-compass"></i> Textbook Hub</button>
+        <button class="nav-btn" onclick="switchTab('notebooks')"><i class="fa-solid fa-note-sticky"></i> Digital Notebooks</button>
+        <button class="nav-btn" onclick="switchTab('my-notes')"><i class="fa-solid fa-pen-to-square"></i> My Saved Notes</button>
+        <button class="nav-btn" onclick="switchTab('api-doc')"><i class="fa-solid fa-code"></i> API Explorer</button>
+      </nav>
+      <div class="status-badge">
+        <span class="status-dot"></span> DIKSHA Live Sync
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- TAB 1: Textbook Hub -->
+    <section id="explorer-tab" class="tab-content active">
+      <!-- Hero Banner -->
+      <div class="hero">
+        <h1>Class 8 to 12 State Board Notebook & Textbook Hub</h1>
+        <p>Access official NCERT & State Board digital textbooks, chapter revision notes, key formulas, and practice sets powered by DIKSHA APIs.</p>
+
+        <!-- Board Selector Badges -->
+        <div class="board-selector-title"><i class="fa-solid fa-landmark"></i> Select Board:</div>
+        <div class="board-badges" id="board-badges-container">
+          <!-- Rendered dynamically -->
+        </div>
+
+        <!-- Class Selector Pills -->
+        <div class="class-selector-title"><i class="fa-solid fa-graduation-cap"></i> Select Class:</div>
+        <div class="class-pills" id="class-pills-container">
+          <button class="class-pill" data-class="Class 8" onclick="selectClass('Class 8')">Class 8</button>
+          <button class="class-pill" data-class="Class 9" onclick="selectClass('Class 9')">Class 9</button>
+          <button class="class-pill active" data-class="Class 10" onclick="selectClass('Class 10')">Class 10</button>
+          <button class="class-pill" data-class="Class 11" onclick="selectClass('Class 11')">Class 11</button>
+          <button class="class-pill" data-class="Class 12" onclick="selectClass('Class 12')">Class 12</button>
+        </div>
+      </div>
+
+      <!-- Filters & Search Bar -->
+      <div class="filter-card">
+        <div class="filter-group">
+          <label><i class="fa-solid fa-flask"></i> Subject:</label>
+          <select id="subject-filter" onchange="applyFilters()">
+            <option value="">All Subjects</option>
+            <option value="Mathematics">Mathematics</option>
+            <option value="Science">Science</option>
+            <option value="Physics">Physics</option>
+            <option value="Chemistry">Chemistry</option>
+            <option value="Biology">Biology</option>
+            <option value="Social Science">Social Science</option>
+            <option value="History">History</option>
+            <option value="Geography">Geography</option>
+            <option value="Political Science">Political Science</option>
+            <option value="Economics">Economics</option>
+            <option value="English">English</option>
+            <option value="Hindi">Hindi</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label><i class="fa-solid fa-language"></i> Medium:</label>
+          <select id="medium-filter" onchange="applyFilters()">
+            <option value="">All Mediums</option>
+            <option value="English">English</option>
+            <option value="Hindi">Hindi (हिंदी)</option>
+            <option value="Marathi">Marathi (मराठी)</option>
+            <option value="Tamil">Tamil (தமிழ்)</option>
+            <option value="Kannada">Kannada (ಕನ್ನಡ)</option>
+            <option value="Bengali">Bengali (বাংলা)</option>
+            <option value="Gujarati">Gujarati (ગુજરાતી)</option>
+            <option value="Telugu">Telugu (తెలుగు)</option>
+          </select>
+        </div>
+
+        <div class="filter-group search-group">
+          <label><i class="fa-solid fa-magnifying-glass"></i> Search Textbooks:</label>
+          <div class="search-box">
+            <input type="text" id="search-input" placeholder="Search chapters, topics (e.g. Real Numbers, Light)..." onkeyup="handleSearchKey(event)">
+            <button class="btn-primary" onclick="applyFilters()"><i class="fa-solid fa-search"></i> Search</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Results Stats -->
+      <div class="results-header">
+        <div class="results-info" id="results-count">Searching books...</div>
+      </div>
+
+      <!-- Book Grid -->
+      <div class="books-grid" id="books-grid">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- TAB 2: Digital Notebooks -->
+    <section id="notebooks-tab" class="tab-content">
+      <div class="section-title">
+        <h2><i class="fa-solid fa-book-open"></i> Chapter Notebook Study Packs</h2>
+        <p>Curated revision summaries, formulas, flashcards, and Q&A notes for Class 8-12 subjects.</p>
+      </div>
+
+      <div class="notebook-controls">
+        <select id="nb-grade" onchange="loadNotebookNotes()">
+          <option value="Class 8">Class 8</option>
+          <option value="Class 9">Class 9</option>
+          <option value="Class 10" selected>Class 10</option>
+          <option value="Class 11">Class 11</option>
+          <option value="Class 12">Class 12</option>
+        </select>
+        <select id="nb-subject" onchange="loadNotebookNotes()">
+          <option value="Mathematics">Mathematics</option>
+          <option value="Science">Science</option>
+          <option value="Physics">Physics</option>
+          <option value="Chemistry">Chemistry</option>
+        </select>
+        <select id="nb-chapter" onchange="loadNotebookNotes()">
+          <option value="1">Chapter 1</option>
+          <option value="2">Chapter 2</option>
+          <option value="3">Chapter 3</option>
+          <option value="4">Chapter 4</option>
+          <option value="5">Chapter 5</option>
+        </select>
+        <button class="btn-primary" onclick="loadNotebookNotes()"><i class="fa-solid fa-rotate"></i> Refresh Notes</button>
+      </div>
+
+      <div class="notebook-view-container" id="notebook-view-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- TAB 3: My Saved Notes -->
+    <section id="my-notes-tab" class="tab-content">
+      <div class="section-title">
+        <h2><i class="fa-solid fa-folder-open"></i> Personal Notes & Bookmarks</h2>
+        <button class="btn-success" onclick="openCreateNoteModal()"><i class="fa-solid fa-plus"></i> Create New Note</button>
+      </div>
+      <div id="user-notes-list" class="notes-grid">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- TAB 4: API Explorer & Documentation -->
+    <section id="api-doc-tab" class="tab-content">
+      <div class="section-title">
+        <h2><i class="fa-solid fa-laptop-code"></i> REST API Documentation & Live Tester</h2>
+        <p>Test the Notebook Provider API endpoints directly from your browser!</p>
+      </div>
+
+      <div class="api-container">
+        <div class="api-sidebar">
+          <div class="api-endpoint-item active" onclick="selectEndpoint('boards')">
+            <span class="method-badge get">GET</span>
+            <span class="ep-path">/api/v1/boards</span>
+          </div>
+          <div class="api-endpoint-item" onclick="selectEndpoint('board-detail')">
+            <span class="method-badge get">GET</span>
+            <span class="ep-path">/api/v1/boards/:code</span>
+          </div>
+          <div class="api-endpoint-item" onclick="selectEndpoint('books')">
+            <span class="method-badge get">GET</span>
+            <span class="ep-path">/api/v1/books</span>
+          </div>
+          <div class="api-endpoint-item" onclick="selectEndpoint('book-detail')">
+            <span class="method-badge get">GET</span>
+            <span class="ep-path">/api/v1/books/:id</span>
+          </div>
+          <div class="api-endpoint-item" onclick="selectEndpoint('notebook-chapter')">
+            <span class="method-badge get">GET</span>
+            <span class="ep-path">/api/v1/notebooks/chapter</span>
+          </div>
+          <div class="api-endpoint-item" onclick="selectEndpoint('get-notes')">
+            <span class="method-badge get">GET</span>
+            <span class="ep-path">/api/v1/notes</span>
+          </div>
+          <div class="api-endpoint-item" onclick="selectEndpoint('post-note')">
+            <span class="method-badge post">POST</span>
+            <span class="ep-path">/api/v1/notes</span>
+          </div>
+          <div class="api-endpoint-item" onclick="selectEndpoint('pdf-proxy')">
+            <span class="method-badge get">GET</span>
+            <span class="ep-path">/api/v1/pdf/proxy</span>
+          </div>
+        </div>
+
+        <div class="api-tester-card">
+          <div class="api-tester-header">
+            <span id="tester-method" class="method-badge get">GET</span>
+            <input type="text" id="tester-url" value="/api/v1/books?board=CBSE&class=Class%2010">
+            <button class="btn-primary" onclick="executeApiCall()"><i class="fa-solid fa-play"></i> Send Request</button>
+          </div>
+          <div class="api-desc" id="tester-desc">Fetch textbooks and digital notebooks filtered by state board, class, and subject.</div>
+          
+          <div class="curl-box" id="tester-curl">
+            curl -X GET "http://localhost:3000/api/v1/books?board=CBSE&class=Class%2010"
+          </div>
+
+          <div class="api-response-title"><i class="fa-solid fa-terminal"></i> Response Output:</div>
+          <pre class="json-viewer" id="tester-response">Click "Send Request" to test endpoint...</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- PDF Reader Modal -->
+  <div class="modal" id="pdf-modal">
+    <div class="modal-content pdf-modal-content">
+      <div class="modal-header">
+        <h3 id="pdf-modal-title"><i class="fa-solid fa-file-pdf"></i> PDF Viewer</h3>
+        <button class="close-btn" onclick="closePdfModal()">&times;</button>
+      </div>
+      <div class="modal-body pdf-body">
+        <iframe id="pdf-iframe" src="about:blank"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Note Modal -->
+  <div class="modal" id="note-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-pen-to-square"></i> Save Personal Study Note</h3>
+        <button class="close-btn" onclick="closeNoteModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="note-form" onsubmit="handleSaveNote(event)">
+          <div class="form-group">
+            <label>Note Title:</label>
+            <input type="text" id="note-title" placeholder="e.g. Chapter 1 Real Numbers Revision Points" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Board:</label>
+              <input type="text" id="note-board" value="CBSE">
+            </div>
+            <div class="form-group">
+              <label>Class:</label>
+              <input type="text" id="note-class" value="Class 10">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Note Content / Remarks:</label>
+            <textarea id="note-content" rows="5" placeholder="Write formulas, points to remember, homework notes..." required></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" onclick="closeNoteModal()">Cancel</button>
+            <button type="submit" class="btn-primary">Save Note</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
