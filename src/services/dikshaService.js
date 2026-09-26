@@ -404,7 +404,7 @@ function normalizeChapterTitleKey(title) {
  * Recursively parse multi-level DIKSHA hierarchy nodes (Levels 1 to 4)
  * Strictly filters out non-chapter media labels ("Book", "MP4 VIDEO") and deduplicates titles
  */
-function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1, cumulativePage: 1 }, grade = 'Class 10', subject = 'General', seenTitles = new Set()) {
+function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1 }, grade = 'Class 10', subject = 'General', seenTitles = new Set()) {
   let chapters = [];
   if (!Array.isArray(nodes)) return chapters;
 
@@ -420,11 +420,8 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
 
     if (title && !isIgnored && !isDuplicate) {
       if (titleKey) seenTitles.add(titleKey);
-      const startPg = node.startPage || state.cumulativePage;
-
-      if (!foundPdf) {
-        state.cumulativePage += 15;
-      }
+      const printedStart = (node.startPage && !isNaN(parseInt(node.startPage, 10))) ? parseInt(node.startPage, 10) : null;
+      const printedEnd = (node.endPage && !isNaN(parseInt(node.endPage, 10))) ? parseInt(node.endPage, 10) : null;
 
       const currentChNum = state.chapterNumber;
       state.chapterNumber++;
@@ -437,8 +434,12 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
         identifier: node.identifier || `ch_${currentChNum}`,
         title: title,
         level: Math.min(Math.max(level, 1), 4),
-        startPage: startPg,
-        endPage: startPg + 14,
+        startPage: printedStart,
+        endPage: printedEnd,
+        printedStartPage: printedStart,
+        printedEndPage: printedEnd,
+        pdfStartPage: null,
+        pdfEndPage: null,
         pdfUrl: chapterPdfUrl,
         proxyPdfUrl: proxyPdfUrl,
         downloadUrl: downloadUrl
@@ -610,7 +611,7 @@ async function resolveBookReadingResource(bookId) {
   console.log(`REJECTED CANDIDATES COUNT: ${rejectedCandidates.length}`);
 
   // Step 6: Parse multi-level Table of Contents hierarchy
-  const state = { chapterNumber: 1, cumulativePage: 1 };
+  const state = { chapterNumber: 1 };
   const rootNodes = (hierarchyContent && hierarchyContent.children)
     || (rawContent.children)
     || [];

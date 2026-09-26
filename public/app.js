@@ -449,7 +449,7 @@ async function scanPagesForPrintedToc(pdf) {
                   title: rawTitle,
                   level: 1,
                   startPage: startPg || p,
-                  endPage: (startPg || p) + 14,
+                  endPage: null,
                   pdfUrl: currentPdfProxyUrl,
                   proxyPdfUrl: currentPdfProxyUrl
                 });
@@ -482,7 +482,7 @@ async function extractPdfTocOutline(pdf) {
           title: item.title.trim(),
           level: 1,
           startPage: pageNum || 1,
-          endPage: (pageNum || 1) + 14,
+          endPage: null,
           pdfUrl: currentPdfProxyUrl,
           proxyPdfUrl: currentPdfProxyUrl
         });
@@ -497,7 +497,7 @@ async function extractPdfTocOutline(pdf) {
               title: subItem.title.trim(),
               level: 2,
               startPage: subPage || pageNum || 1,
-              endPage: (subPage || pageNum || 1) + 14,
+              endPage: null,
               pdfUrl: currentPdfProxyUrl,
               proxyPdfUrl: currentPdfProxyUrl
             });
@@ -630,7 +630,7 @@ function handleChapterClick(chapterId) {
   }
 
   currentChapterId = chapterId;
-  const targetPage = parseInt(chapter.startPage, 10) || 1;
+  const targetPage = parseInt(chapter.pdfStartPage || chapter.startPage, 10) || 1;
   const proxyUrl = chapter.proxyPdfUrl;
 
   // CASE A: If chapter has its own distinct PDF proxy URL, load that chapter PDF
