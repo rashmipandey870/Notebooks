@@ -799,11 +799,14 @@ async function searchDikshaBooks(options = {}) {
     ];
   }
 
+  const requestedLimit = parseInt(limit, 10) || 20;
+  const apiFetchLimit = Math.max(requestedLimit * 5, 100);
+
   const payload = {
     request: {
       filters: filters,
       query: query || '',
-      limit: parseInt(limit, 10) || 20,
+      limit: apiFetchLimit,
       offset: parseInt(offset, 10) || 0,
       sort_by: { lastUpdatedOn: 'desc' }
     }
@@ -835,7 +838,7 @@ async function searchDikshaBooks(options = {}) {
         request: {
           filters: fallbackFilters,
           query: query || (boardObj ? boardObj.state : ''),
-          limit: parseInt(limit, 10) || 20,
+          limit: apiFetchLimit,
           offset: parseInt(offset, 10) || 0,
           sort_by: { lastUpdatedOn: 'desc' }
         }
@@ -855,12 +858,73 @@ async function searchDikshaBooks(options = {}) {
       }
     }
 
+    // SMART RANKING ENGINE:
+    // 1. Prioritize full textbook collections (mimeType === 'application/vnd.ekstep.content-collection')
+    // 2. Prioritize core academic subjects (Math, Science, Social Studies, English, Hindi, Sanskrit) over vocational training
+    // 3. Deprioritize isolated single-chapter topic files (e.g. titles starting with numbers/grammar topics)
+    const coreSubjectsList = ['mathematics', 'science', 'social science', 'social studies', 'history', 'geography', 'political science', 'civics', 'economics', 'english', 'hindi', 'sanskrit'];
+
+    normalizedBooks.sort((a, b) => {
+      const aColl = a.mimeType === 'application/vnd.ekstep.content-collection' ? 1 : 0;
+      const bColl = b.mimeType === 'application/vnd.ekstep.content-collection' ? 1 : 0;
+      if (aColl !== bColl) return bColl - aColl;
+
+      const aSubj = (a.subject && a.subject[0]) ? a.subject[0].toLowerCase() : '';
+      const bSubj = (b.subject && b.subject[0]) ? b.subject[0].toLowerCase() : '';
+      const aCore = coreSubjectsList.some(cs => aSubj.includes(cs)) ? 1 : 0;
+      const bCore = coreSubjectsList.some(cs => bSubj.includes(cs)) ? 1 : 0;
+      if (aCore !== bCore) return bCore - aCore;
+
+      const aTitle = (a.title || '').toLowerCase();
+      const bTitle = (b.title || '').toLowerCase();
+      const aChapterDoc = aTitle.match(/^(?:\d+[\.\-\s]|chapter)/) ? 1 : 0;
+      const bChapterDoc = bTitle.match(/^(?:\d+[\.\-\s]|chapter)/) ? 1 : 0;
+      if (aChapterDoc !== bChapterDoc) return aChapterDoc - bChapterDoc;
+
+      return 0;
+    });
+
+    // SUBJECT ROUND-ROBIN INTERLEAVER:
+    // If user hasn't explicitly filtered by a single subject, balance results across subjects (Math, Science, Social, English, Hindi, Sanskrit)
+    let finalBooks = normalizedBooks;
+    if (!subject && normalizedBooks.length > 0) {
+      const subjectMap = {};
+      normalizedBooks.forEach(item => {
+        const itemSubj = (item.subject && item.subject[0]) ? item.subject[0].trim() : 'General';
+        if (!subjectMap[itemSubj]) subjectMap[itemSubj] = [];
+        subjectMap[itemSubj].push(item);
+      });
+
+      const subjectKeys = Object.keys(subjectMap);
+      if (subjectKeys.length > 1) {
+        const interleaved = [];
+        let added = true;
+        let round = 0;
+        while (added && interleaved.length < requestedLimit) {
+          added = false;
+          for (const sKey of subjectKeys) {
+            if (subjectMap[sKey][round]) {
+              interleaved.push(subjectMap[sKey][round]);
+              added = true;
+              if (interleaved.length >= requestedLimit) break;
+            }
+          }
+          round++;
+        }
+        finalBooks = interleaved;
+      } else {
+        finalBooks = normalizedBooks.slice(0, requestedLimit);
+      }
+    } else {
+      finalBooks = normalizedBooks.slice(0, requestedLimit);
+    }
+
     const resultData = {
       success: true,
-      total: normalizedBooks.length > 0 ? (count || normalizedBooks.length) : 0,
-      limit: parseInt(limit, 10),
+      total: count > 0 ? count : finalBooks.length,
+      limit: requestedLimit,
       offset: parseInt(offset, 10),
-      books: normalizedBooks
+      books: finalBooks
     };
 
     cache.set(cacheKey, { timestamp: Date.now(), data: resultData });
