@@ -191,12 +191,12 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
   currentPdfProxyUrl = decodeURIComponent(encodedProxyPdfUrl);
   currentPdfDownloadUrl = decodeURIComponent(encodedDownloadUrl);
 
-  modalTitle.innerHTML = `<i class="fa-solid fa-book-open"></i> ${title}`;
+  modalTitle.innerHTML = `<i class="fa-solid fa-book-open"></i> ${escapeHtml(title)}`;
   downloadBtn.href = currentPdfDownloadUrl;
   document.getElementById('pdf-error-download-btn').href = currentPdfDownloadUrl;
 
   sidebarList.innerHTML = '<div class="sidebar-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading chapters...</div>';
-  chapterCount.textContent = 'Fetching...';
+  chapterCount.textContent = 'Loading...';
   modal.classList.add('active');
 
   // Load PDF Document in Viewer
@@ -216,8 +216,8 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
       chapterCount.textContent = `${chapters.length} Chapters`;
 
       sidebarList.innerHTML = chapters.map((ch, idx) => `
-        <div class="chapter-item ${idx === 0 ? 'active' : ''}" onclick="selectSidebarChapter('${ch.identifier}', '${escapeHtml(ch.title)}', '${encodeURIComponent(ch.proxyPdfUrl || currentPdfProxyUrl)}', this)">
-          <div class="chapter-item-title">${ch.title}</div>
+        <div class="chapter-item ${idx === 0 ? 'active' : ''}" onclick="selectSidebarChapter('${ch.identifier}', '${escapeHtml(ch.title)}', '${encodeURIComponent(ch.proxyPdfUrl || currentPdfProxyUrl)}', this, ${ch.startPage || 1})">
+          <div class="chapter-item-title">${escapeHtml(ch.title)}</div>
           <div class="chapter-item-meta">
             <span>Chapter ${ch.chapterNumber}</span>
             <span style="color:#3b82f6;">Read &rarr;</span>
@@ -225,22 +225,27 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
         </div>
       `).join('');
     } else {
-      chapterCount.textContent = 'Full PDF';
+      chapterCount.textContent = 'No TOC';
       sidebarList.innerHTML = `
-        <div style="padding: 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
-          <i class="fa-solid fa-circle-check fa-2x" style="color:#10b981; margin-bottom: 0.5rem;"></i><br>
-          Full Digital Textbook PDF Loaded
+        <div style="padding: 1.5rem 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
+          <i class="fa-solid fa-circle-info fa-2x" style="color:#94a3b8; margin-bottom: 0.5rem;"></i><br>
+          Table of Contents unavailable for this book
         </div>
       `;
     }
   } catch (err) {
-    chapterCount.textContent = 'Digital Content';
-    sidebarList.innerHTML = '<div style="padding: 1rem; color: #64748b; font-size: 0.8rem;">Full textbook PDF active.</div>';
+    chapterCount.textContent = 'No TOC';
+    sidebarList.innerHTML = `
+      <div style="padding: 1.5rem 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
+        <i class="fa-solid fa-circle-info fa-2x" style="color:#94a3b8; margin-bottom: 0.5rem;"></i><br>
+        Table of Contents unavailable for this book
+      </div>
+    `;
   }
 }
 
 // PDF.js Document Loader Engine
-function loadPdfDocument(proxyUrl) {
+function loadPdfDocument(proxyUrl, initialPage = 1) {
   const spinner = document.getElementById('pdf-loading-spinner');
   const errorBox = document.getElementById('pdf-error-container');
   const canvasWrapper = document.getElementById('pdf-canvas-wrapper');
@@ -255,9 +260,13 @@ function loadPdfDocument(proxyUrl) {
     cMapPacked: true
   }).promise.then(pdf => {
     pdfDoc = pdf;
-    pdfPageNum = 1;
+    let startPg = parseInt(initialPage, 10) || 1;
+    if (startPg > pdfDoc.numPages) startPg = pdfDoc.numPages;
+    if (startPg < 1) startPg = 1;
+
+    pdfPageNum = startPg;
     document.getElementById('pdf-page-count').textContent = pdfDoc.numPages;
-    document.getElementById('pdf-page-num').value = 1;
+    document.getElementById('pdf-page-num').value = startPg;
     document.getElementById('pdf-page-num').max = pdfDoc.numPages;
 
     spinner.style.display = 'none';
@@ -370,14 +379,22 @@ function retryPdfLoad() {
 }
 
 // Select a specific chapter in sidebar
-function selectSidebarChapter(identifier, title, encodedProxyUrl, element) {
+function selectSidebarChapter(identifier, title, encodedProxyUrl, element, startPage) {
   document.querySelectorAll('.chapter-item').forEach(el => el.classList.remove('active'));
-  element.classList.add('active');
+  if (element) {
+    element.classList.add('active');
+  }
 
+  const targetPage = parseInt(startPage, 10) || 1;
   const proxyUrl = decodeURIComponent(encodedProxyUrl);
-  if (proxyUrl && proxyUrl !== 'null' && proxyUrl !== 'undefined') {
+
+  if (proxyUrl && proxyUrl !== currentPdfProxyUrl && proxyUrl !== 'null' && proxyUrl !== 'undefined') {
     currentPdfProxyUrl = proxyUrl;
-    loadPdfDocument(proxyUrl);
+    loadPdfDocument(proxyUrl, targetPage);
+  } else if (pdfDoc) {
+    jumpToPdfPage(targetPage);
+  } else {
+    loadPdfDocument(currentPdfProxyUrl, targetPage);
   }
 }
 
