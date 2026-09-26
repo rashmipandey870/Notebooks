@@ -4,7 +4,7 @@ const { getBoardByCode, BOARDS } = require('../config/boards');
 
 const DIKSHA_BASE_URL = 'https://diksha.gov.in/api';
 const cache = new Map();
-const CACHE_TTL_MS = 15 * 60 * 1000; // 15 mins cache
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 mins cache
 
 /**
  * Make HTTPS POST request to DIKSHA API
@@ -794,8 +794,7 @@ async function searchDikshaBooks(options = {}) {
       'Digital Textbook',
       'eTextbook',
       'TextBook',
-      'eTextBook',
-      'Learning Resource'
+      'eTextBook'
     ];
   }
 
@@ -807,8 +806,7 @@ async function searchDikshaBooks(options = {}) {
       filters: filters,
       query: query || '',
       limit: apiFetchLimit,
-      offset: parseInt(offset, 10) || 0,
-      sort_by: { lastUpdatedOn: 'desc' }
+      offset: parseInt(offset, 10) || 0
     }
   };
 
@@ -839,8 +837,7 @@ async function searchDikshaBooks(options = {}) {
           filters: fallbackFilters,
           query: query || (boardObj ? boardObj.state : ''),
           limit: apiFetchLimit,
-          offset: parseInt(offset, 10) || 0,
-          sort_by: { lastUpdatedOn: 'desc' }
+          offset: parseInt(offset, 10) || 0
         }
       };
 
@@ -895,7 +892,13 @@ async function searchDikshaBooks(options = {}) {
         subjectMap[itemSubj].push(item);
       });
 
-      const subjectKeys = Object.keys(subjectMap);
+      // Sort subjectKeys so core academic subjects take precedence over vocational training
+      const subjectKeys = Object.keys(subjectMap).sort((sA, sB) => {
+        const sACore = coreSubjectsList.some(cs => sA.toLowerCase().includes(cs)) ? 1 : 0;
+        const sBCore = coreSubjectsList.some(cs => sB.toLowerCase().includes(cs)) ? 1 : 0;
+        return sBCore - sACore;
+      });
+
       if (subjectKeys.length > 1) {
         const interleaved = [];
         let added = true;
