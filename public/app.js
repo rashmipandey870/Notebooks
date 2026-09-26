@@ -272,9 +272,11 @@ async function openBookModal(dikshaId, initialTitle = 'Loading Book...') {
         `;
       }
 
-      // Resolve PDF resource strictly for THIS book instance
+      // Resolve PDF resource strictly for THIS book instance (prefer complete textbook PDF over single chapter PDF)
       const firstChWithPdf = currentBookChapters.find(c => c.proxyPdfUrl && c.proxyPdfUrl !== 'null');
-      const activeProxyUrl = (firstChWithPdf && firstChWithPdf.proxyPdfUrl) || (book.proxyPdfUrl && book.proxyPdfUrl !== 'null' ? book.proxyPdfUrl : null);
+      const activeProxyUrl = (book.proxyPdfUrl && book.proxyPdfUrl !== 'null' && book.proxyPdfUrl !== 'undefined')
+        ? book.proxyPdfUrl
+        : (firstChWithPdf && firstChWithPdf.proxyPdfUrl !== 'null' ? firstChWithPdf.proxyPdfUrl : null);
 
       if (book.pdfValid && activeProxyUrl && activeProxyUrl !== 'null' && activeProxyUrl !== 'undefined') {
         currentPdfProxyUrl = activeProxyUrl;
@@ -439,9 +441,17 @@ async function resolveOutlineItemPage(pdf, item) {
 
 async function scanPagesForPrintedToc(pdf) {
   const chapters = [];
-  const maxPagesToScan = Math.min(pdf.numPages, 15);
+  const maxPagesToScan = Math.min(pdf.numPages, 25);
   let inTocSection = false;
   let chNum = 1;
+
+  const tocHeaders = [
+    'CONTENTS', 'TABLE OF CONTENTS', 'INDEX', 'CHAPTERS',
+    'विषय-सूची', 'विषय सूची', 'अनुक्रमणिका',
+    'વિષય સૂચિ', 'અનુક્રમણિકા', 'અનુક્રમ',
+    'সূচিপত্র', 'பொருளடக்கம்', 'విషయసూచిక', 'విషయ సూచిక',
+    'ವಿಷಯಸೂಚಿ', 'ഉള്ളടക്കം', 'ਵਿਸ਼ਾ-ਸੂਚੀ', 'فہرست'
+  ];
 
   for (let p = 1; p <= maxPagesToScan; p++) {
     try {
@@ -449,9 +459,10 @@ async function scanPagesForPrintedToc(pdf) {
       const textContent = await page.getTextContent();
       const lines = textContent.items.map(i => i.str.trim()).filter(Boolean);
       const pageText = lines.join(' ');
+      const upperText = pageText.toUpperCase();
 
       if (!inTocSection) {
-        if (pageText.toUpperCase().includes('CONTENTS') || pageText.toUpperCase().includes('TABLE OF CONTENTS') || pageText.includes('विषय-सूची') || pageText.includes('विषय सूची')) {
+        if (tocHeaders.some(h => pageText.includes(h) || upperText.includes(h))) {
           inTocSection = true;
         }
       }

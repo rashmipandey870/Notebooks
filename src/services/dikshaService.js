@@ -273,10 +273,45 @@ function resolvePdfUrlForItem(item) {
 }
 
 /**
+ * Check if a raw DIKSHA item is a genuine textbook (not teacher resource, practice set, etc.)
+ */
+function isGenuineTextbookItem(item) {
+  if (!item) return false;
+  const primaryCat = (item.primaryCategory || '').toLowerCase();
+  const contentType = (item.contentType || '').toLowerCase();
+  const name = (item.name || '').toLowerCase();
+
+  // Explicit rejections for non-textbook supplementary content
+  const nonTextbookTerms = [
+    'teacher resource', 'explanation content', 'practice question', 'question set',
+    'lesson plan', 'activity', 'graphic novel', 'comparative study', 'assessment',
+    'quiz', 'worksheet', 'short answer', 'long answer', 'audio content', 'video content'
+  ];
+
+  if (nonTextbookTerms.some(term => primaryCat.includes(term) || contentType.includes(term) || name.includes(term))) {
+    return false;
+  }
+
+  // Must match genuine textbook categories
+  const validCatTerms = ['digital textbook', 'etextbook', 'textbook', 'digitaltextbook'];
+  const validContentTypeTerms = ['textbook', 'etextbook'];
+
+  if (validCatTerms.some(t => primaryCat.includes(t)) || validContentTypeTerms.some(t => contentType.includes(t))) {
+    return true;
+  }
+
+  if (item.mimeType === 'application/vnd.ekstep.content-collection' || item.mimeType === 'application/pdf') {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Normalize DIKSHA raw item into clean Notebook API format
  */
 function normalizeDikshaItem(item) {
-  if (!item) return null;
+  if (!item || !isGenuineTextbookItem(item)) return null;
 
   const resolvedPdf = resolvePdfUrlForItem(item);
   const grade = Array.isArray(item.gradeLevel) ? item.gradeLevel[0] : (item.gradeLevel || 'Class 10');
@@ -448,9 +483,10 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
       chapters.push(chapterObj);
     }
 
-    if (node.children && Array.isArray(node.children) && node.children.length > 0) {
+    const childNodes = node.children || node.childNodes || node.contents || node.linkedContent || node.units;
+    if (Array.isArray(childNodes) && childNodes.length > 0) {
       const nextLevel = isIgnored ? level : level + 1;
-      const childChapters = parseDikshaHierarchyNodes(node.children, nextLevel, chapterPdfUrl, state, grade, subject, seenTitles);
+      const childChapters = parseDikshaHierarchyNodes(childNodes, nextLevel, chapterPdfUrl, state, grade, subject, seenTitles);
       chapters = chapters.concat(childChapters);
     }
   }
@@ -588,7 +624,7 @@ async function resolveBookReadingResource(bookId) {
   // Sort candidates so book-level candidates are checked first
   uniqueCandidates.sort((a, b) => (b.isBookLevel ? 1 : 0) - (a.isBookLevel ? 1 : 0));
 
-  const candidatesToTest = uniqueCandidates.slice(0, 10);
+  const candidatesToTest = uniqueCandidates.slice(0, 30);
   const validationResults = await Promise.all(
     candidatesToTest.map(cand => 
       validatePdfHeader(cand.url).then(check => ({ cand, check }))
@@ -612,8 +648,8 @@ async function resolveBookReadingResource(bookId) {
 
   // Step 6: Parse multi-level Table of Contents hierarchy
   const state = { chapterNumber: 1 };
-  const rootNodes = (hierarchyContent && hierarchyContent.children)
-    || (rawContent.children)
+  const rootNodes = (hierarchyContent && (hierarchyContent.children || hierarchyContent.childNodes || hierarchyContent.contents))
+    || (rawContent.children || rawContent.childNodes || rawContent.contents)
     || [];
 
   const chapters = parseDikshaHierarchyNodes(
@@ -747,10 +783,10 @@ async function searchDikshaBooks(options = {}) {
     filters.primaryCategory = [
       'Digital Textbook',
       'eTextbook',
-      'Explanation Content',
-      'Teacher Resource',
-      'Practice Question Set'
+      'TextBook',
+      'eTextBook'
     ];
+    filters.targetContentType = ['TextBook', 'eTextBook'];
   }
 
   const payload = {

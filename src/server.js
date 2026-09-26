@@ -60,9 +60,11 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Website & API Server listening on http://localhost:${PORT}`);
-  console.log(`API Base Path: http://localhost:${PORT}/api/v1`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Website & API Server listening on http://localhost:${PORT}`);
+    console.log(`API Base Path: http://localhost:${PORT}/api/v1`);
+  });
+}
 
 module.exports = app;
