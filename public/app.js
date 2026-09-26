@@ -166,10 +166,10 @@ function renderBooks(books) {
           </div>
           <div class="book-desc">${escapeHtml(book.description)}</div>
           <div class="book-actions">
-            <button class="btn-card primary" onclick="openBookModal('${escapeHtml(book.title)}', '${book.dikshaId}', '${encodeURIComponent(proxyPdfUrl)}', '${encodeURIComponent(downloadUrl)}')">
+            <button class="btn-card primary" onclick="openBookModal('${book.dikshaId}')">
               <i class="fa-solid fa-book-open"></i> Open Book
             </button>
-            <a href="${downloadUrl}" download target="_blank" class="btn-card download">
+            <a href="${downloadUrl || '#'}" ${downloadUrl ? 'download target="_blank"' : 'onclick="alert(\'Download PDF is not available for this textbook.\'); return false;"'} class="btn-card download">
               <i class="fa-solid fa-download"></i> Download PDF
             </a>
           </div>
@@ -184,7 +184,7 @@ let currentChapterId = null;
 let currentBookChapters = [];
 
 // Open Internal PDF.js Book Reader Modal
-async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloadUrl) {
+async function openBookModal(dikshaId, initialTitle = 'Loading Book...') {
   const modal = document.getElementById('pdf-modal');
   const modalTitle = document.getElementById('pdf-modal-title');
   const downloadBtn = document.getElementById('pdf-download-btn');
@@ -203,8 +203,8 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
   currentChapterId = null;
   currentBookChapters = [];
   currentPdfProxyUrl = '';
-  currentPdfDownloadUrl = decodeURIComponent(encodedDownloadUrl);
-  currentPdfTitle = title;
+  currentPdfDownloadUrl = '';
+  currentPdfTitle = initialTitle;
   pdfPageNum = 1;
   pdfPageRendering = false;
   pdfPageNumPending = null;
@@ -222,9 +222,8 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
 
   document.getElementById('pdf-page-count').textContent = '...';
   document.getElementById('pdf-page-num').value = 1;
-  modalTitle.innerHTML = `<i class="fa-solid fa-book-open"></i> ${escapeHtml(title)}`;
-  downloadBtn.href = currentPdfDownloadUrl;
-  document.getElementById('pdf-error-download-btn').href = currentPdfDownloadUrl;
+  modalTitle.innerHTML = `<i class="fa-solid fa-book-open"></i> ${escapeHtml(initialTitle)}`;
+  downloadBtn.href = '#';
 
   sidebarList.innerHTML = '<div class="sidebar-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading chapters...</div>';
   chapterCount.textContent = 'Loading...';
@@ -238,6 +237,13 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
     if (data && data.book) {
       const book = data.book;
       currentBookChapters = book.chapters || [];
+      currentPdfTitle = book.title || initialTitle;
+      currentPdfDownloadUrl = book.downloadUrl || '';
+
+      modalTitle.innerHTML = `<i class="fa-solid fa-book-open"></i> ${escapeHtml(book.title)}`;
+      if (downloadBtn && currentPdfDownloadUrl) downloadBtn.href = currentPdfDownloadUrl;
+      const errDownloadBtn = document.getElementById('pdf-error-download-btn');
+      if (errDownloadBtn && currentPdfDownloadUrl) errDownloadBtn.href = currentPdfDownloadUrl;
 
       // Render Table of Contents
       if (currentBookChapters.length > 0) {
@@ -268,11 +274,12 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
 
       // Resolve PDF resource strictly for THIS book instance
       const firstChWithPdf = currentBookChapters.find(c => c.proxyPdfUrl && c.proxyPdfUrl !== 'null');
-      const activeProxyUrl = (firstChWithPdf && firstChWithPdf.proxyPdfUrl) || (book.proxyPdfUrl !== 'null' ? book.proxyPdfUrl : null);
+      const activeProxyUrl = (firstChWithPdf && firstChWithPdf.proxyPdfUrl) || (book.proxyPdfUrl && book.proxyPdfUrl !== 'null' ? book.proxyPdfUrl : null);
 
       if (book.pdfValid && activeProxyUrl && activeProxyUrl !== 'null' && activeProxyUrl !== 'undefined') {
         currentPdfProxyUrl = activeProxyUrl;
-        loadPdfDocument(activeProxyUrl, (firstChWithPdf && firstChWithPdf.startPage) || 1);
+        const initialStartPage = (firstChWithPdf && (firstChWithPdf.pdfStartPage || firstChWithPdf.startPage)) || 1;
+        loadPdfDocument(activeProxyUrl, initialStartPage);
       } else {
         // BOOK RESOURCE UNUSABLE: Display specific error message according to backend reason
         spinner.style.display = 'none';
@@ -280,7 +287,7 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
         errorBox.style.display = 'flex';
 
         let errHeading = 'Reading Resource Unavailable';
-        let errDesc = 'Reading resource is not available for this textbook.';
+        let errDesc = data.message || 'Reading resource is not available for this textbook.';
 
         if (data.reason === 'RESOURCE_VALIDATION_FAILED') {
           errHeading = 'Resource Verification Failed';
@@ -301,11 +308,35 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
           </div>
         `;
       }
+    } else {
+      spinner.style.display = 'none';
+      canvasWrapper.style.display = 'none';
+      errorBox.style.display = 'flex';
+      errorBox.innerHTML = `
+        <i class="fa-solid fa-triangle-exclamation fa-3x" style="color: #f59e0b;"></i>
+        <h4 style="margin-top: 1rem; font-weight: 800; color: #0f172a; font-size: 1.1rem;">Reading Resource Unavailable</h4>
+        <p style="color: #64748b; font-size: 0.9rem; margin: 0.5rem 0 1.25rem 0; max-width: 480px; line-height: 1.5;">
+          ${escapeHtml(data.message || 'Reading resource is not available for this textbook.')}
+        </p>
+        <div style="display: flex; gap: 10px;">
+          <button onclick="closePdfModal()" class="btn-primary"><i class="fa-solid fa-arrow-left"></i> Back to Textbooks</button>
+        </div>
+      `;
     }
   } catch (err) {
     spinner.style.display = 'none';
     canvasWrapper.style.display = 'none';
     errorBox.style.display = 'flex';
+    errorBox.innerHTML = `
+      <i class="fa-solid fa-circle-exclamation fa-3x" style="color: #ef4444;"></i>
+      <h4 style="margin-top: 1rem; font-weight: 800; color: #0f172a; font-size: 1.1rem;">Error Loading Textbook</h4>
+      <p style="color: #64748b; font-size: 0.9rem; margin: 0.5rem 0 1.25rem 0; max-width: 480px; line-height: 1.5;">
+        ${escapeHtml(err.message)}
+      </p>
+      <div style="display: flex; gap: 10px;">
+        <button onclick="closePdfModal()" class="btn-primary"><i class="fa-solid fa-arrow-left"></i> Back to Textbooks</button>
+      </div>
+    `;
   }
 }
 
@@ -869,5 +900,10 @@ async function executeApiCall() {
 
 function escapeHtml(str) {
   if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
