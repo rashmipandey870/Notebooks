@@ -165,14 +165,14 @@ function discoverCandidatesFromNode(node, source, candidates, grade = 'Class 10'
   const mime = (node.mimeType || '').toLowerCase();
   const primaryCat = (node.primaryCategory || '').toLowerCase();
   const contentType = (node.contentType || '').toLowerCase();
+  const name = (node.name || '').toLowerCase();
 
-  if (mime.includes('video') || mime.includes('audio') || mime.includes('image')) {
-    return;
-  }
-  if (primaryCat.includes('video') || primaryCat.includes('audio')) {
-    return;
-  }
-  if (contentType.includes('video') || contentType.includes('audio')) {
+  // Reject non-reading media (video, audio, image) and supplementary non-textbook materials
+  if (mime.includes('video') || mime.includes('audio') || mime.includes('image')) return;
+  if (primaryCat.includes('video') || primaryCat.includes('audio') || primaryCat.includes('teacher')) return;
+  if (contentType.includes('video') || contentType.includes('audio') || contentType.includes('teacher')) return;
+
+  if (name.includes('short answer') || name.includes('long answer') || name.includes('lesson plan') || name.includes('graphic novel') || name.includes('comparative study') || name.includes('assessment') || name.includes('quiz') || name.includes('worksheet')) {
     return;
   }
 
@@ -194,6 +194,9 @@ function discoverCandidatesFromNode(node, source, candidates, grade = 'Class 10'
   }
 
   if (candidateUrl && candidateUrl.startsWith('http')) {
+    const filename = candidateUrl.split('/').pop().toLowerCase();
+    const isOfficialTextbookPdf = filename.includes('textbook') || filename.includes('book') || filename.match(/^[a-z]{4}\d{3}\.pdf$/);
+
     candidates.push({
       id: node.identifier || `cand_${candidates.length + 1}`,
       contentId: node.identifier,
@@ -203,7 +206,7 @@ function discoverCandidatesFromNode(node, source, candidates, grade = 'Class 10'
       mimeType: node.mimeType || 'application/pdf',
       url: candidateUrl,
       source: source,
-      isBookLevel: source === 'book' || source === 'hierarchy_root'
+      isBookLevel: source === 'book' || source === 'hierarchy_root' || isOfficialTextbookPdf
     });
   }
 
@@ -316,7 +319,7 @@ function isIgnoredNodeTitle(name, mimeType, primaryCategory) {
   if (!name || typeof name !== 'string') return true;
   const clean = name.trim().toLowerCase();
 
-  const ignoredNames = [
+  const ignoredExactOrContains = [
     'book',
     'collection',
     'textbook',
@@ -352,17 +355,27 @@ function isIgnoredNodeTitle(name, mimeType, primaryCategory) {
     'practice question',
     'practice set',
     'explanation content',
-    'teacher resource'
+    'teacher resource',
+    'short answer',
+    'short answer questions',
+    'long answer',
+    'long answer questions',
+    'lesson plan',
+    'lesson plan & activity',
+    'activity',
+    'graphic novel',
+    'comparative study',
+    'master lesson plan'
   ];
 
-  if (ignoredNames.includes(clean)) return true;
-  if (clean.startsWith('mp4 video') || clean.startsWith('video -') || clean.startsWith('e-textbook') || clean.startsWith('text content') || clean.startsWith('video content')) return true;
+  if (ignoredExactOrContains.some(term => clean === term || clean.startsWith(term))) return true;
+  if (clean.includes('short answer') || clean.includes('long answer') || clean.includes('lesson plan') || clean.includes('graphic novel') || clean.includes('comparative study')) return true;
 
   const mime = (mimeType || '').toLowerCase();
   if (mime.includes('video') || mime.includes('audio') || mime.includes('image')) return true;
 
   const cat = (primaryCategory || '').toLowerCase();
-  if (cat.includes('video') || cat.includes('audio')) return true;
+  if (cat.includes('video') || cat.includes('audio') || cat.includes('teacher')) return true;
 
   return false;
 }
