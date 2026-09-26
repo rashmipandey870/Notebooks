@@ -310,45 +310,93 @@ function normalizeDikshaItem(item) {
 }
 
 /**
- * Recursively parse multi-level DIKSHA hierarchy nodes (Levels 1 to 4)
+ * Helper to check if node title is a generic non-chapter label or media folder
  */
-function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1, cumulativePage: 1 }, grade = 'Class 10', subject = 'General') {
+function isIgnoredNodeTitle(name, mimeType, primaryCategory) {
+  if (!name || typeof name !== 'string') return true;
+  const clean = name.trim().toLowerCase();
+
+  const ignoredNames = [
+    'book',
+    'collection',
+    'textbook',
+    'digital textbook',
+    'mp4 video',
+    'mp4',
+    'video',
+    'video lesson',
+    'mp3 audio',
+    'audio',
+    'assessment',
+    'quiz',
+    'worksheet',
+    'practice question',
+    'practice set',
+    'explanation content',
+    'teacher resource'
+  ];
+
+  if (ignoredNames.includes(clean)) return true;
+  if (clean.startsWith('mp4 video') || clean.startsWith('video -')) return true;
+
+  const mime = (mimeType || '').toLowerCase();
+  if (mime.includes('video') || mime.includes('audio') || mime.includes('image')) return true;
+
+  const cat = (primaryCategory || '').toLowerCase();
+  if (cat.includes('video') || cat.includes('audio')) return true;
+
+  return false;
+}
+
+/**
+ * Recursively parse multi-level DIKSHA hierarchy nodes (Levels 1 to 4)
+ * Strictly filters out non-chapter media labels ("Book", "MP4 VIDEO") and deduplicates titles
+ */
+function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1, cumulativePage: 1 }, grade = 'Class 10', subject = 'General', seenTitles = new Set()) {
   let chapters = [];
   if (!Array.isArray(nodes)) return chapters;
 
   for (const node of nodes) {
     if (!node) continue;
-    const title = node.name ? node.name.trim() : `Section ${state.chapterNumber}`;
+    const title = node.name ? node.name.trim() : '';
     const foundPdf = findPdfUrlInNode(node);
     const chapterPdfUrl = foundPdf || parentPdfUrl;
-    const startPg = node.startPage || state.cumulativePage;
 
-    if (!foundPdf) {
-      state.cumulativePage += 15;
+    const isIgnored = isIgnoredNodeTitle(title, node.mimeType, node.primaryCategory);
+    const isDuplicate = title && seenTitles.has(title.toLowerCase());
+
+    if (title && !isIgnored && !isDuplicate) {
+      seenTitles.add(title.toLowerCase());
+      const startPg = node.startPage || state.cumulativePage;
+
+      if (!foundPdf) {
+        state.cumulativePage += 15;
+      }
+
+      const currentChNum = state.chapterNumber;
+      state.chapterNumber++;
+
+      const proxyPdfUrl = chapterPdfUrl ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chapterPdfUrl)}` : null;
+      const downloadUrl = chapterPdfUrl ? `/api/v1/download?url=${encodeURIComponent(chapterPdfUrl)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${currentChNum}`)}` : null;
+
+      const chapterObj = {
+        chapterNumber: currentChNum,
+        identifier: node.identifier || `ch_${currentChNum}`,
+        title: title,
+        level: Math.min(Math.max(level, 1), 4),
+        startPage: startPg,
+        endPage: startPg + 14,
+        pdfUrl: chapterPdfUrl,
+        proxyPdfUrl: proxyPdfUrl,
+        downloadUrl: downloadUrl
+      };
+
+      chapters.push(chapterObj);
     }
 
-    const currentChNum = state.chapterNumber;
-    state.chapterNumber++;
-
-    const proxyPdfUrl = chapterPdfUrl ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chapterPdfUrl)}` : null;
-    const downloadUrl = chapterPdfUrl ? `/api/v1/download?url=${encodeURIComponent(chapterPdfUrl)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${currentChNum}`)}` : null;
-
-    const chapterObj = {
-      chapterNumber: currentChNum,
-      identifier: node.identifier || `ch_${currentChNum}`,
-      title: title,
-      level: Math.min(Math.max(level, 1), 4),
-      startPage: startPg,
-      endPage: startPg + 14,
-      pdfUrl: chapterPdfUrl,
-      proxyPdfUrl: proxyPdfUrl,
-      downloadUrl: downloadUrl
-    };
-
-    chapters.push(chapterObj);
-
     if (node.children && Array.isArray(node.children) && node.children.length > 0) {
-      const childChapters = parseDikshaHierarchyNodes(node.children, level + 1, chapterPdfUrl, state, grade, subject);
+      const nextLevel = isIgnored ? level : level + 1;
+      const childChapters = parseDikshaHierarchyNodes(node.children, nextLevel, chapterPdfUrl, state, grade, subject, seenTitles);
       chapters = chapters.concat(childChapters);
     }
   }
