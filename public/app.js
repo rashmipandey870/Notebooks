@@ -194,7 +194,10 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
   const errorBox = document.getElementById('pdf-error-container');
   const canvasWrapper = document.getElementById('pdf-canvas-wrapper');
 
-  // STEP 5: RESET ALL PDF & BOOK STATE BEFORE LOADING NEW BOOK
+  // STEP 18: RESET ALL PDF & BOOK STATE BEFORE LOADING NEW BOOK
+  if (pdfDoc) {
+    try { pdfDoc.destroy(); } catch(e) {}
+  }
   pdfDoc = null;
   currentBookId = dikshaId;
   currentChapterId = null;
@@ -203,6 +206,15 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
   currentPdfDownloadUrl = decodeURIComponent(encodedDownloadUrl);
   currentPdfTitle = title;
   pdfPageNum = 1;
+  pdfPageRendering = false;
+  pdfPageNumPending = null;
+
+  // Clear canvas
+  const canvas = document.getElementById('pdf-render-canvas');
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
 
   spinner.style.display = 'flex';
   errorBox.style.display = 'none';
@@ -223,7 +235,7 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
     const res = await fetch(`/api/v1/books/${dikshaId}`);
     const data = await res.json();
 
-    if (data.success && data.book) {
+    if (data && data.book) {
       const book = data.book;
       currentBookChapters = book.chapters || [];
 
@@ -249,28 +261,40 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
         sidebarList.innerHTML = `
           <div style="padding: 1.5rem 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
             <i class="fa-solid fa-circle-info fa-2x" style="color:#94a3b8; margin-bottom: 0.5rem;"></i><br>
-            No table of contents is available for this book.
+            The textbook is available, but its table of contents is unavailable.
           </div>
         `;
       }
 
-      // STEP 15 & 29: Resolve PDF resource strictly for THIS book instance
+      // Resolve PDF resource strictly for THIS book instance
       const firstChWithPdf = currentBookChapters.find(c => c.proxyPdfUrl && c.proxyPdfUrl !== 'null');
       const activeProxyUrl = (firstChWithPdf && firstChWithPdf.proxyPdfUrl) || (book.proxyPdfUrl !== 'null' ? book.proxyPdfUrl : null);
 
-      if (activeProxyUrl && activeProxyUrl !== 'null' && activeProxyUrl !== 'undefined') {
+      if (book.pdfValid && activeProxyUrl && activeProxyUrl !== 'null' && activeProxyUrl !== 'undefined') {
         currentPdfProxyUrl = activeProxyUrl;
         loadPdfDocument(activeProxyUrl, (firstChWithPdf && firstChWithPdf.startPage) || 1);
       } else {
-        // BOOK RESOURCE MISMATCH / MISSING PDF: Show clear error state
+        // BOOK RESOURCE UNUSABLE: Display specific error message according to backend reason
         spinner.style.display = 'none';
         canvasWrapper.style.display = 'none';
         errorBox.style.display = 'flex';
+
+        let errHeading = 'Reading Resource Unavailable';
+        let errDesc = 'Reading resource is not available for this textbook.';
+
+        if (data.reason === 'RESOURCE_VALIDATION_FAILED') {
+          errHeading = 'Resource Verification Failed';
+          errDesc = 'We could not verify the textbook resource.';
+        } else if (data.reason === 'RESOURCE_TEMPORARILY_UNAVAILABLE') {
+          errHeading = 'Service Temporarily Unavailable';
+          errDesc = 'The textbook service is temporarily unavailable. Please try again.';
+        }
+
         errorBox.innerHTML = `
           <i class="fa-solid fa-triangle-exclamation fa-3x" style="color: #f59e0b;"></i>
-          <h4 style="margin-top: 1rem; font-weight: 800; color: #0f172a; font-size: 1.1rem;">Textbook PDF Resource Unavailable</h4>
+          <h4 style="margin-top: 1rem; font-weight: 800; color: #0f172a; font-size: 1.1rem;">${escapeHtml(errHeading)}</h4>
           <p style="color: #64748b; font-size: 0.9rem; margin: 0.5rem 0 1.25rem 0; max-width: 480px; line-height: 1.5;">
-            The PDF file for "<strong>${escapeHtml(book.title)}</strong>" (${escapeHtml(book.board)}) is currently unavailable on the DIKSHA portal.
+            ${escapeHtml(errDesc)}
           </p>
           <div style="display: flex; gap: 10px;">
             <button onclick="closePdfModal()" class="btn-primary"><i class="fa-solid fa-arrow-left"></i> Back to Textbooks</button>

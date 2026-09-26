@@ -1,18 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { searchDikshaBooks, getDikshaBookById } = require('../services/dikshaService');
+const { searchDikshaBooks, getDikshaBookById, resolveBookReadingResource } = require('../services/dikshaService');
 
 /**
  * GET /api/v1/books
  * Search / filter textbooks & learning resources across state boards from DIKSHA portal
- * Query Params:
- *   - board: Board code or filter (e.g. CBSE, UP, MP, MH, BIHAR, RJ, TN, KA)
- *   - class / gradeLevel: Class 8, 9, 10, 11, 12
- *   - medium: English, Hindi, Marathi, Tamil, etc.
- *   - subject: Mathematics, Science, Physics, Chemistry, etc.
- *   - query: Search keyword (e.g. Real Numbers, Organic Chemistry)
- *   - limit: Number of results (default 20, max 100)
- *   - offset: Pagination offset
  */
 router.get('/books', async (req, res) => {
   try {
@@ -57,23 +49,23 @@ router.get('/books', async (req, res) => {
 router.get('/books/:id', async (req, res) => {
   try {
     const bookId = req.params.id;
-    const book = await getDikshaBookById(bookId);
+    const resolved = await resolveBookReadingResource(bookId);
 
-    if (!book) {
+    if (!resolved || !resolved.book) {
       return res.status(404).json({
         success: false,
+        bookId: bookId,
+        book: null,
+        reason: 'RESOURCE_NOT_FOUND',
         message: `Book with identifier '${bookId}' not found on DIKSHA portal`
       });
     }
 
-    res.json({
-      success: true,
-      book: book
-    });
+    res.json(resolved);
   } catch (err) {
     res.status(500).json({
       success: false,
-      message: `Error fetching book details: ${err.message}`
+      message: `Error resolving book details: ${err.message}`
     });
   }
 });
@@ -81,16 +73,18 @@ router.get('/books/:id', async (req, res) => {
 router.get('/books/:id/debug', async (req, res) => {
   try {
     const bookId = req.params.id;
-    const book = await getDikshaBookById(bookId);
+    const resolved = await resolveBookReadingResource(bookId);
 
-    if (!book) {
+    if (!resolved || !resolved.book) {
       return res.status(404).json({
         success: false,
         message: `Book '${bookId}' not found.`
       });
     }
 
+    const book = resolved.book;
     res.json({
+      success: resolved.success,
       bookId: book.id,
       title: book.title,
       board: book.board,
@@ -101,6 +95,8 @@ router.get('/books/:id/debug', async (req, res) => {
       proxyPdfUrl: book.proxyPdfUrl,
       downloadUrl: book.downloadUrl,
       pdfValid: book.pdfValid,
+      reason: resolved.reason || null,
+      message: resolved.message || null,
       chaptersCount: book.chapters ? book.chapters.length : 0,
       chapters: (book.chapters || []).map(ch => ({
         chapterNumber: ch.chapterNumber,
