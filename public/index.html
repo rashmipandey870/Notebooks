@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Mozilla PDF.js Engine -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
   <!-- Header -->
@@ -16,7 +18,7 @@
         <i class="fa-solid fa-book-bookmark logo-icon"></i>
         <div>
           <span class="logo-title">Notebook & Textbook Portal</span>
-          <span class="logo-subtitle">Class 8-12 State Boards Learning Hub</span>
+          <span class="logo-subtitle">Class 8-12 State Boards & NCERT Learning Hub</span>
         </div>
       </div>
       <nav class="nav-links">
@@ -26,7 +28,7 @@
         <button class="nav-btn" onclick="switchTab('api-doc')"><i class="fa-solid fa-code"></i> API Explorer</button>
       </nav>
       <div class="status-badge">
-        <span class="status-dot"></span> System Online
+        <span class="status-dot"></span> System Active
       </div>
     </div>
   </header>
@@ -221,33 +223,48 @@
     </section>
   </main>
 
-  <!-- Native Self-Hosted Book Reader Modal -->
+  <!-- Native PDF.js Textbook Reader Modal -->
   <div class="modal" id="pdf-modal">
-    <div class="modal-content diksha-reader-modal">
+    <div class="modal-content diksha-reader-modal" id="reader-modal-content">
       
-      <!-- Top Reader Header Bar -->
+      <!-- Top Reader Header & Navigation Toolbar -->
       <div class="diksha-reader-header">
         <div class="reader-title-area">
-          <span class="reader-badge" id="reader-badge">Self-Hosted Reader</span>
+          <span class="reader-badge" id="reader-badge">NCERT Reader</span>
           <h3 id="pdf-modal-title" class="reader-book-title"><i class="fa-solid fa-book-open"></i> Book Title</h3>
         </div>
-        <div class="reader-actions">
-          <a id="pdf-download-btn" href="#" download class="btn-reader-action download-btn">
-            <i class="fa-solid fa-download"></i> Download Book File
-          </a>
-          <button class="close-btn" onclick="closePdfModal()">&times;</button>
+
+        <div class="reader-toolbar-controls">
+          <!-- Page Navigation -->
+          <div class="toolbar-group">
+            <button class="tb-btn" onclick="prevPdfPage()" title="Previous Page"><i class="fa-solid fa-chevron-left"></i></button>
+            <span class="tb-text">Page <input type="number" id="pdf-page-num" value="1" min="1" onchange="jumpToPdfPage(this.value)"> of <span id="pdf-page-count">1</span></span>
+            <button class="tb-btn" onclick="nextPdfPage()" title="Next Page"><i class="fa-solid fa-chevron-right"></i></button>
+          </div>
+
+          <!-- Zoom Controls -->
+          <div class="toolbar-group">
+            <button class="tb-btn" onclick="zoomPdfOut()" title="Zoom Out"><i class="fa-solid fa-minus"></i></button>
+            <span class="tb-text" id="pdf-zoom-val">100%</span>
+            <button class="tb-btn" onclick="zoomPdfIn()" title="Zoom In"><i class="fa-solid fa-plus"></i></button>
+            <button class="tb-btn" onclick="fitPdfWidth()" title="Fit to Width"><i class="fa-solid fa-expand"></i></button>
+          </div>
+
+          <!-- Download & Action Buttons -->
+          <div class="toolbar-group">
+            <button class="tb-btn" onclick="togglePdfFullscreen()" title="Fullscreen"><i class="fa-solid fa-compress"></i></button>
+            <a id="pdf-download-btn" href="#" download class="btn-reader-action download-btn">
+              <i class="fa-solid fa-download"></i> Download PDF
+            </a>
+            <button class="close-btn" onclick="closePdfModal()">&times;</button>
+          </div>
         </div>
       </div>
 
-      <!-- Main Reader Body: Split Layout -->
+      <!-- Main Reader Body (Split View) -->
       <div class="diksha-reader-body">
         
-        <!-- Left: Native Viewer Viewport -->
-        <div class="diksha-player-viewport" id="reader-viewport-container">
-          <iframe id="pdf-iframe" src="about:blank" allowfullscreen></iframe>
-        </div>
-
-        <!-- Right: Chapter Index Sidebar -->
+        <!-- Left Chapter Sidebar -->
         <div class="diksha-chapter-sidebar">
           <div class="sidebar-header">
             <h4><i class="fa-solid fa-list-ol"></i> Table of Contents</h4>
@@ -258,6 +275,34 @@
               <i class="fa-solid fa-spinner fa-spin"></i> Loading e-Textbook chapters...
             </div>
           </div>
+        </div>
+
+        <!-- Center PDF.js Canvas Viewport -->
+        <div class="diksha-player-viewport" id="pdf-viewport-container">
+          
+          <!-- Loading Spinner -->
+          <div id="pdf-loading-spinner" class="pdf-state-container">
+            <i class="fa-solid fa-circle-notch fa-spin fa-3x" style="color: #3b82f6;"></i>
+            <p style="margin-top: 1rem; font-weight: 700; color: #1e293b;">Loading textbook pages...</p>
+          </div>
+
+          <!-- Error State -->
+          <div id="pdf-error-container" class="pdf-state-container" style="display: none;">
+            <i class="fa-solid fa-triangle-exclamation fa-3x" style="color: #f59e0b;"></i>
+            <h4 style="margin-top: 1rem; font-weight: 800; color: #0f172a; font-size: 1.1rem;">Unable to load this textbook right now</h4>
+            <p style="color: #64748b; font-size: 0.9rem; margin: 0.5rem 0 1.25rem 0;">The network connection or proxy stream took too long.</p>
+            <div style="display: flex; gap: 10px;">
+              <button onclick="retryPdfLoad()" class="btn-primary"><i class="fa-solid fa-rotate-right"></i> Retry</button>
+              <a id="pdf-error-download-btn" href="#" download class="btn-success"><i class="fa-solid fa-download"></i> Download PDF</a>
+              <button onclick="closePdfModal()" class="btn-secondary">Back to Books</button>
+            </div>
+          </div>
+
+          <!-- Canvas Wrapper -->
+          <div id="pdf-canvas-wrapper" style="display: none; overflow: auto; width: 100%; height: 100%; text-align: center; padding: 1.5rem; background: #525659;">
+            <canvas id="pdf-render-canvas" style="margin: 0 auto; box-shadow: 0 10px 25px rgba(0,0,0,0.4); background: #ffffff; border-radius: 4px;"></canvas>
+          </div>
+
         </div>
 
       </div>

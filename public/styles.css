@@ -279,6 +279,7 @@ body {
   align-items: center;
   gap: 8px;
   transition: background 0.2s;
+  text-decoration: none;
 }
 
 .btn-primary:hover {
@@ -306,6 +307,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  text-decoration: none;
 }
 
 /* Results Header */
@@ -346,7 +348,7 @@ body {
 }
 
 .book-cover-area {
-  height: 140px;
+  height: 150px;
   background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
   color: #fff;
   padding: 1.25rem;
@@ -354,17 +356,30 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  background-size: cover;
+  background-position: center;
+}
+
+.book-cover-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(15, 23, 42, 0.4), rgba(15, 23, 42, 0.85));
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .book-board-tag {
   align-self: flex-start;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.25);
   backdrop-filter: blur(4px);
   padding: 4px 10px;
   border-radius: 12px;
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
+  color: #fff;
 }
 
 .book-cover-title {
@@ -375,6 +390,7 @@ body {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  color: #fff;
 }
 
 .book-card-body {
@@ -450,20 +466,20 @@ body {
 }
 
 .btn-card.download {
-  background: #059669;
+  background: #10b981;
   color: #fff;
-  border-color: #059669;
+  border-color: #10b981;
 }
 
 .btn-card.download:hover {
-  background: #047857;
+  background: #059669;
 }
 
-/* DIKSHA Style Book Reader Modal */
+/* Reader Modal */
 .diksha-reader-modal {
   width: 95% !important;
-  max-width: 1400px !important;
-  height: 90vh !important;
+  max-width: 1450px !important;
+  height: 92vh !important;
   display: flex;
   flex-direction: column;
   background: #f8fafc;
@@ -475,17 +491,20 @@ body {
 .diksha-reader-header {
   background: #0f172a;
   color: #fff;
-  padding: 0.85rem 1.25rem;
+  padding: 0.75rem 1.25rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 1rem;
 }
 
 .reader-title-area {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1;
+  overflow: hidden;
 }
 
 .reader-badge {
@@ -496,20 +515,72 @@ body {
   text-transform: uppercase;
   padding: 3px 8px;
   border-radius: 12px;
+  white-space: nowrap;
 }
 
 .reader-book-title {
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 800;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.reader-actions {
+.reader-toolbar-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tb-btn {
+  background: transparent;
+  border: none;
+  color: #e2e8f0;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.tb-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.tb-text {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #cbd5e1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tb-text input {
+  width: 42px;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  text-align: center;
+  border-radius: 4px;
+  padding: 2px;
+  font-weight: 700;
+  font-size: 0.8rem;
 }
 
 .btn-reader-action {
@@ -522,6 +593,7 @@ body {
   align-items: center;
   gap: 6px;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .btn-reader-action.download-btn {
@@ -533,41 +605,39 @@ body {
   background: #059669;
 }
 
-.btn-reader-action.external-btn {
-  background: rgba(255, 255, 255, 0.15);
-  color: #e2e8f0;
-}
-
-.btn-reader-action.external-btn:hover {
-  background: rgba(255, 255, 255, 0.25);
-  color: #fff;
-}
-
 .diksha-reader-body {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 300px 1fr;
   overflow: hidden;
-  background: #f1f5f9;
+  background: #525659;
 }
 
 .diksha-player-viewport {
   height: 100%;
   width: 100%;
-  background: #ffffff;
+  background: #525659;
   position: relative;
+  overflow: hidden;
 }
 
-.diksha-player-viewport iframe {
-  width: 100%;
-  height: 100%;
-  border: none;
+.pdf-state-container {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  padding: 2rem;
+  text-align: center;
 }
 
 /* Chapter Index Sidebar */
 .diksha-chapter-sidebar {
   background: #ffffff;
-  border-left: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -1,9 +1,24 @@
+// Configure PDF.js Worker
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
 let currentBoard = 'CBSE';
 let currentClass = 'Class 10';
 let currentSubject = '';
 let currentMedium = '';
 let currentSearch = '';
 let boardsList = [];
+
+// PDF.js State Management
+let pdfDoc = null;
+let pdfPageNum = 1;
+let pdfPageRendering = false;
+let pdfPageNumPending = null;
+let pdfScale = 1.2;
+let currentPdfProxyUrl = '';
+let currentPdfDownloadUrl = '';
+let currentPdfTitle = '';
 
 // Initialize Dashboard
 document.addEventListener('DOMContentLoaded', async () => {
@@ -128,13 +143,20 @@ function renderBooks(books) {
   const grid = document.getElementById('books-grid');
   grid.innerHTML = books.map(book => {
     const proxyPdfUrl = book.proxyPdfUrl;
-    const downloadUrl = book.downloadUrl || (book.rawAssetUrl ? `/api/v1/download?url=${encodeURIComponent(book.rawAssetUrl)}&filename=${encodeURIComponent(book.title)}` : '#');
+    const downloadUrl = book.downloadUrl;
+    const hasCover = !!book.posterImage;
+
+    const coverStyle = hasCover
+      ? `background-image: url('${book.posterImage}');`
+      : `background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);`;
 
     return `
       <div class="book-card">
-        <div class="book-cover-area">
-          <span class="book-board-tag">${book.board || currentBoard}</span>
-          <div class="book-cover-title">${escapeHtml(book.title)}</div>
+        <div class="book-cover-area" style="${coverStyle}">
+          ${hasCover ? '<div class="book-cover-overlay">' : ''}
+            <span class="book-board-tag">${book.board || currentBoard}</span>
+            <div class="book-cover-title">${escapeHtml(book.title)}</div>
+          ${hasCover ? '</div>' : ''}
         </div>
         <div class="book-card-body">
           <div class="book-meta-tags">
@@ -144,11 +166,11 @@ function renderBooks(books) {
           </div>
           <div class="book-desc">${escapeHtml(book.description)}</div>
           <div class="book-actions">
-            <button class="btn-card primary" onclick="openBookModal('${escapeHtml(book.title)}', '${book.dikshaId}', '${encodeURIComponent(proxyPdfUrl || '')}', '${encodeURIComponent(downloadUrl)}')">
-              <i class="fa-solid fa-book-reader"></i> Open Book
+            <button class="btn-card primary" onclick="openBookModal('${escapeHtml(book.title)}', '${book.dikshaId}', '${encodeURIComponent(proxyPdfUrl)}', '${encodeURIComponent(downloadUrl)}')">
+              <i class="fa-solid fa-book-open"></i> Open Book
             </button>
             <a href="${downloadUrl}" download target="_blank" class="btn-card download">
-              <i class="fa-solid fa-download"></i> Download
+              <i class="fa-solid fa-download"></i> Download PDF
             </a>
           </div>
         </div>
@@ -157,27 +179,30 @@ function renderBooks(books) {
   }).join('');
 }
 
-// Open Native Self-Hosted Book Reader Modal
+// Open Internal PDF.js Book Reader Modal
 async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloadUrl) {
   const modal = document.getElementById('pdf-modal');
   const modalTitle = document.getElementById('pdf-modal-title');
-  const iframe = document.getElementById('pdf-iframe');
   const downloadBtn = document.getElementById('pdf-download-btn');
   const sidebarList = document.getElementById('sidebar-chapter-list');
   const chapterCount = document.getElementById('sidebar-chapter-count');
-  const viewportContainer = document.getElementById('reader-viewport-container');
 
-  const proxyPdfUrl = decodeURIComponent(encodedProxyPdfUrl);
-  const downloadUrl = decodeURIComponent(encodedDownloadUrl);
+  currentPdfTitle = title;
+  currentPdfProxyUrl = decodeURIComponent(encodedProxyPdfUrl);
+  currentPdfDownloadUrl = decodeURIComponent(encodedDownloadUrl);
 
   modalTitle.innerHTML = `<i class="fa-solid fa-book-open"></i> ${title}`;
-  downloadBtn.href = downloadUrl;
+  downloadBtn.href = currentPdfDownloadUrl;
+  document.getElementById('pdf-error-download-btn').href = currentPdfDownloadUrl;
 
   sidebarList.innerHTML = '<div class="sidebar-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading chapters...</div>';
   chapterCount.textContent = 'Fetching...';
   modal.classList.add('active');
 
-  // Fetch detailed book metadata & TOC from local API
+  // Load PDF Document in Viewer
+  loadPdfDocument(currentPdfProxyUrl);
+
+  // Fetch Table of Contents (TOC) for Left Sidebar
   try {
     const res = await fetch(`/api/v1/books/${dikshaId}`);
     const data = await res.json();
@@ -190,128 +215,158 @@ async function openBookModal(title, dikshaId, encodedProxyPdfUrl, encodedDownloa
     if (chapters.length > 0) {
       chapterCount.textContent = `${chapters.length} Chapters`;
 
-      sidebarList.innerHTML = chapters.map((ch, idx) => {
-        const sub = (ch.subTopics && ch.subTopics.length > 0) ? ch.subTopics[0] : null;
-        const chProxyUrl = sub && sub.proxyUrl ? sub.proxyUrl : proxyPdfUrl;
-
-        return `
-          <div class="chapter-item ${idx === 0 ? 'active' : ''}" onclick="selectSidebarChapter('${ch.identifier}', '${escapeHtml(ch.title)}', '${encodeURIComponent(chProxyUrl || '')}', this)">
-            <div class="chapter-item-title">${idx + 1}. ${escapeHtml(ch.title)}</div>
-            <div class="chapter-item-meta">
-              <span>${ch.subTopics ? ch.subTopics.length : 0} Sections</span>
-              <span style="color:#3b82f6;">Read Chapter &rarr;</span>
-            </div>
+      sidebarList.innerHTML = chapters.map((ch, idx) => `
+        <div class="chapter-item ${idx === 0 ? 'active' : ''}" onclick="selectSidebarChapter('${ch.identifier}', '${escapeHtml(ch.title)}', '${encodeURIComponent(ch.proxyPdfUrl || currentPdfProxyUrl)}', this)">
+          <div class="chapter-item-title">${ch.title}</div>
+          <div class="chapter-item-meta">
+            <span>Chapter ${ch.chapterNumber}</span>
+            <span style="color:#3b82f6;">Read &rarr;</span>
           </div>
-        `;
-      }).join('');
-
-      // Load first chapter or PDF proxy into viewport
-      const firstSub = (chapters[0].subTopics && chapters[0].subTopics.length > 0) ? chapters[0].subTopics[0] : null;
-      const initialProxy = (firstSub && firstSub.proxyUrl) ? firstSub.proxyUrl : proxyPdfUrl;
-
-      if (initialProxy) {
-        iframe.src = initialProxy;
-      } else {
-        showNativeChapterText(chapters[0].title, chapters[0].subTopics);
-      }
-    } else if (proxyPdfUrl) {
+        </div>
+      `).join('');
+    } else {
       chapterCount.textContent = 'Full PDF';
       sidebarList.innerHTML = `
         <div style="padding: 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
           <i class="fa-solid fa-circle-check fa-2x" style="color:#10b981; margin-bottom: 0.5rem;"></i><br>
-          Full Digital PDF Loaded
+          Full Digital Textbook PDF Loaded
         </div>
       `;
-      iframe.src = proxyPdfUrl;
-    } else {
-      chapterCount.textContent = 'Digital Book';
-      sidebarList.innerHTML = `
-        <div style="padding: 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
-          <i class="fa-solid fa-book-open fa-2x" style="color:#3b82f6; margin-bottom: 0.5rem;"></i><br>
-          Digital Textbook Package
-        </div>
-      `;
-      showNativeBookOverview(title, data.book);
     }
   } catch (err) {
     chapterCount.textContent = 'Digital Content';
-    if (proxyPdfUrl) {
-      iframe.src = proxyPdfUrl;
-    } else {
-      showNativeBookOverview(title, null);
-    }
+    sidebarList.innerHTML = '<div style="padding: 1rem; color: #64748b; font-size: 0.8rem;">Full textbook PDF active.</div>';
   }
 }
 
-// Render native interactive chapter text when direct PDF is not standalone
-function showNativeChapterText(chapterTitle, subTopics) {
-  const iframe = document.getElementById('pdf-iframe');
-  const doc = iframe.contentWindow.document;
-  doc.open();
-  doc.write(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-      <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; padding: 2rem; color: #1e293b; background: #ffffff; line-height: 1.6; }
-        h1 { color: #0f172a; font-size: 1.5rem; font-weight: 800; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem; margin-bottom: 1.5rem; }
-        .section-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
-        .section-title { font-weight: 700; font-size: 1.1rem; color: #2563eb; margin-bottom: 0.5rem; }
-        .btn-open { display: inline-block; background: #2563eb; color: #fff; font-weight: 700; font-size: 0.85rem; padding: 8px 16px; border-radius: 8px; text-decoration: none; margin-top: 0.5rem; }
-      </style>
-    </head>
-    <body>
-      <h1>${chapterTitle}</h1>
-      <p style="color: #64748b; margin-bottom: 1.5rem;">Interactive e-Textbook chapter sections and learning topics:</p>
-      ${(subTopics && subTopics.length > 0) ? subTopics.map(s => `
-        <div class="section-card">
-          <div class="section-title">${s.title}</div>
-          <p style="font-size: 0.9rem; color: #475569;">Interactive study section for this chapter.</p>
-          ${s.proxyUrl ? `<a href="${s.proxyUrl}" class="btn-open" target="_self">Open Section Asset</a>` : ''}
-        </div>
-      `).join('') : '<p>Full chapter contents loaded natively.</p>'}
-    </body>
-    </html>
-  `);
-  doc.close();
+// PDF.js Document Loader Engine
+function loadPdfDocument(proxyUrl) {
+  const spinner = document.getElementById('pdf-loading-spinner');
+  const errorBox = document.getElementById('pdf-error-container');
+  const canvasWrapper = document.getElementById('pdf-canvas-wrapper');
+
+  spinner.style.display = 'flex';
+  errorBox.style.display = 'none';
+  canvasWrapper.style.display = 'none';
+
+  pdfjsLib.getDocument({
+    url: proxyUrl,
+    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+    cMapPacked: true
+  }).promise.then(pdf => {
+    pdfDoc = pdf;
+    pdfPageNum = 1;
+    document.getElementById('pdf-page-count').textContent = pdfDoc.numPages;
+    document.getElementById('pdf-page-num').value = 1;
+    document.getElementById('pdf-page-num').max = pdfDoc.numPages;
+
+    spinner.style.display = 'none';
+    canvasWrapper.style.display = 'block';
+
+    renderPdfPage(pdfPageNum);
+  }).catch(err => {
+    console.error('Error rendering PDF:', err);
+    spinner.style.display = 'none';
+    errorBox.style.display = 'flex';
+  });
 }
 
-function showNativeBookOverview(title, bookObj) {
-  const iframe = document.getElementById('pdf-iframe');
-  const doc = iframe.contentWindow.document;
-  doc.open();
-  doc.write(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-      <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; padding: 2.5rem; color: #1e293b; background: #ffffff; line-height: 1.6; }
-        .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 1rem; margin-bottom: 1.5rem; }
-        h1 { color: #0f172a; font-size: 1.75rem; font-weight: 800; margin-bottom: 0.5rem; }
-        .meta { color: #2563eb; font-weight: 700; font-size: 0.95rem; }
-        .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; margin-top: 1.5rem; }
-        .btn { display: inline-block; background: #10b981; color: #fff; font-weight: 700; padding: 10px 20px; border-radius: 8px; text-decoration: none; margin-top: 1rem; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <div class="meta">${(bookObj && bookObj.gradeLevel) ? bookObj.gradeLevel.join(', ') : 'Class 10'} &bull; ${(bookObj && bookObj.subject) ? bookObj.subject.join(', ') : 'Subject'}</div>
-        <h1>${title}</h1>
-      </div>
-      <p style="color: #475569; font-size: 1rem;">Complete digital textbook package. Use the Table of Contents sidebar on the right to navigate between chapters and sections.</p>
-      ${(bookObj && bookObj.downloadUrl) ? `
-        <div class="card">
-          <h3 style="font-weight: 800; margin-bottom: 0.5rem;">Offline Reading Package</h3>
-          <p style="font-size: 0.9rem; color: #64748b;">Download the complete e-Textbook file directly to your computer:</p>
-          <a href="${bookObj.downloadUrl}" class="btn" download>📥 Download Book Package</a>
-        </div>
-      ` : ''}
-    </body>
-    </html>
-  `);
-  doc.close();
+// PDF Page Renderer on HTML5 Canvas
+function renderPdfPage(num) {
+  if (!pdfDoc) return;
+  pdfPageRendering = true;
+
+  pdfDoc.getPage(num).then(page => {
+    const canvas = document.getElementById('pdf-render-canvas');
+    const ctx = canvas.getContext('2d');
+    const viewport = page.getViewport({ scale: pdfScale });
+
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+
+    const renderContext = {
+      canvasContext: ctx,
+      viewport: viewport
+    };
+
+    const renderTask = page.render(renderContext);
+
+    renderTask.promise.then(() => {
+      pdfPageRendering = false;
+      if (pdfPageNumPending !== null) {
+        renderPdfPage(pdfPageNumPending);
+        pdfPageNumPending = null;
+      }
+    });
+  });
+
+  document.getElementById('pdf-page-num').value = num;
+}
+
+function queueRenderPage(num) {
+  if (pdfPageRendering) {
+    pdfPageNumPending = num;
+  } else {
+    renderPdfPage(num);
+  }
+}
+
+// Page Navigation Controls
+function prevPdfPage() {
+  if (!pdfDoc || pdfPageNum <= 1) return;
+  pdfPageNum--;
+  queueRenderPage(pdfPageNum);
+}
+
+function nextPdfPage() {
+  if (!pdfDoc || pdfPageNum >= pdfDoc.numPages) return;
+  pdfPageNum++;
+  queueRenderPage(pdfPageNum);
+}
+
+function jumpToPdfPage(val) {
+  if (!pdfDoc) return;
+  let page = parseInt(val, 10);
+  if (isNaN(page) || page < 1) page = 1;
+  if (page > pdfDoc.numPages) page = pdfDoc.numPages;
+  pdfPageNum = page;
+  queueRenderPage(pdfPageNum);
+}
+
+// Zoom Controls
+function zoomPdfIn() {
+  if (!pdfDoc) return;
+  pdfScale += 0.2;
+  document.getElementById('pdf-zoom-val').textContent = `${Math.round(pdfScale * 100)}%`;
+  renderPdfPage(pdfPageNum);
+}
+
+function zoomPdfOut() {
+  if (!pdfDoc || pdfScale <= 0.4) return;
+  pdfScale -= 0.2;
+  document.getElementById('pdf-zoom-val').textContent = `${Math.round(pdfScale * 100)}%`;
+  renderPdfPage(pdfPageNum);
+}
+
+function fitPdfWidth() {
+  if (!pdfDoc) return;
+  const wrapper = document.getElementById('pdf-canvas-wrapper');
+  pdfScale = (wrapper.clientWidth - 40) / 600;
+  document.getElementById('pdf-zoom-val').textContent = `Fit Width`;
+  renderPdfPage(pdfPageNum);
+}
+
+function togglePdfFullscreen() {
+  const modalContent = document.getElementById('reader-modal-content');
+  if (!document.fullscreenElement) {
+    modalContent.requestFullscreen().catch(err => console.error(err));
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+function retryPdfLoad() {
+  loadPdfDocument(currentPdfProxyUrl);
 }
 
 // Select a specific chapter in sidebar
@@ -320,19 +375,15 @@ function selectSidebarChapter(identifier, title, encodedProxyUrl, element) {
   element.classList.add('active');
 
   const proxyUrl = decodeURIComponent(encodedProxyUrl);
-  const iframe = document.getElementById('pdf-iframe');
-
   if (proxyUrl && proxyUrl !== 'null' && proxyUrl !== 'undefined') {
-    iframe.src = proxyUrl;
-  } else {
-    showNativeChapterText(title, []);
+    currentPdfProxyUrl = proxyUrl;
+    loadPdfDocument(proxyUrl);
   }
 }
 
 function closePdfModal() {
   const modal = document.getElementById('pdf-modal');
-  const iframe = document.getElementById('pdf-iframe');
-  iframe.src = 'about:blank';
+  pdfDoc = null;
   modal.classList.remove('active');
 }
 
