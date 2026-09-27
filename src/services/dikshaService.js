@@ -204,8 +204,8 @@ function discoverCandidatesFromNode(node, source, candidates, grade = 'Class 10'
 
   // Reject non-reading media (video, audio, image) and supplementary non-textbook materials
   if (mime.includes('video') || mime.includes('audio') || mime.includes('image')) return;
-  if (primaryCat.includes('video') || primaryCat.includes('audio') || primaryCat.includes('teacher')) return;
-  if (contentType.includes('video') || contentType.includes('audio') || contentType.includes('teacher')) return;
+  if (primaryCat.includes('video') || primaryCat.includes('audio')) return;
+  if (contentType.includes('video') || contentType.includes('audio')) return;
 
   if (name.includes('short answer') || name.includes('long answer') || name.includes('lesson plan') || name.includes('graphic novel') || name.includes('comparative study') || name.includes('assessment') || name.includes('quiz') || name.includes('worksheet')) {
     return;
@@ -522,7 +522,6 @@ function isIgnoredNodeTitle(name, mimeType, primaryCategory, contentType, hasChi
   if (
     cat.includes('video') ||
     cat.includes('audio') ||
-    cat.includes('teacher') ||
     cat.includes('practice') ||
     cat.includes('explanation') ||
     cat.includes('assessment')
@@ -1090,12 +1089,23 @@ async function searchDikshaBooks(options = {}) {
   const stateName = boardObj ? (boardObj.state || boardObj.shortName || boardObj.name) : (board || '');
   const fallbackMedium = (boardObj && boardObj.supportedMediums) ? boardObj.supportedMediums[0] : null;
 
-  // Generate medium case variants to prevent case-sensitive taxonomy zeroing (e.g. 'PUNJABI' vs 'Punjabi', 'ENGLISH' vs 'English')
+  // Generate medium case variants & canonical taxonomy aliases (e.g. 'Bengali'/'Bangla', 'Odia'/'Oriya', 'Arabi'/'Arabic', 'ENGLISH'/'English')
   let mediumFilterList = null;
   if (medium || fallbackMedium) {
     const rawM = medium || fallbackMedium;
     const mArray = Array.isArray(rawM) ? rawM : [rawM];
     const mVariants = new Set();
+    
+    // Include board-specific medium aliases from board configuration
+    if (boardObj) {
+      if (boardObj.dikshaMediumAliases) {
+        boardObj.dikshaMediumAliases.forEach(alias => mVariants.add(alias));
+      }
+      if (boardObj.supportedMediums) {
+        boardObj.supportedMediums.forEach(sm => mVariants.add(sm));
+      }
+    }
+
     mArray.forEach(m => {
       if (m && typeof m === 'string') {
         const s = m.trim();
@@ -1103,6 +1113,16 @@ async function searchDikshaBooks(options = {}) {
         mVariants.add(s.toLowerCase());
         mVariants.add(s.toUpperCase());
         mVariants.add(s.charAt(0).toUpperCase() + s.slice(1).toLowerCase());
+        if (s.toLowerCase() === 'bengali') mVariants.add('Bangla');
+        if (s.toLowerCase() === 'bangla') mVariants.add('Bengali');
+        if (s.toLowerCase() === 'odia') mVariants.add('Oriya');
+        if (s.toLowerCase() === 'oriya') mVariants.add('Odia');
+        if (s.toLowerCase() === 'arabic') mVariants.add('Arabi');
+        if (s.toLowerCase() === 'arabi') mVariants.add('Arabic');
+        if (s.toLowerCase() === 'persian') mVariants.add('Pharsi');
+        if (s.toLowerCase() === 'pharsi') mVariants.add('Persian');
+        if (s.toLowerCase() === 'gujarati') mVariants.add('Gujrati');
+        if (s.toLowerCase() === 'punjabi') mVariants.add('PUNJABI');
       }
     });
     mediumFilterList = Array.from(mVariants);
@@ -1226,10 +1246,47 @@ async function searchDikshaBooks(options = {}) {
     }
   }
 
-  // EXPLICIT GAP DIAGNOSTICS: If all rungs return zero, flag as NO_CONTENT_PUBLISHED upstream gap
+  // EXPLICIT GAP DIAGNOSTICS: If Rungs 1-4 return zero, run Rung 5 as a diagnostic-only probe
   if (normalizedBooks.length === 0) {
     const displayBoard = boardObj ? boardObj.name : (board || 'Selected Board');
     const displayClass = gradeLevel ? (Array.isArray(gradeLevel) ? gradeLevel[0] : gradeLevel) : 'Class 8-12';
+
+    let hasBoardContentAnyGrade = false;
+    executedRungs.push('fallback_rung_5_state_query_only');
+
+    try {
+      // Diagnostic Probe: Query DIKSHA for the board with zero grade / subject / medium filters
+      const probeFilters = {
+        primaryCategory: contentType ? (Array.isArray(contentType) ? contentType : [contentType]) : ['Digital Textbook', 'eTextbook', 'TextBook', 'eTextBook']
+      };
+      if (board) {
+        probeFilters.board = boardObj ? (boardObj.dikshaAliases || [boardObj.dikshaFilter]) : [board];
+      }
+
+      const probePayload = {
+        request: {
+          filters: probeFilters,
+          query: query || (board ? '' : stateName),
+          limit: 20,
+          offset: 0
+        }
+      };
+
+      const probeRes = await makePostRequest('/content/v1/search', probePayload);
+      if (probeRes && !probeRes.error && probeRes.result && probeRes.result.content) {
+        const probeNormalized = probeRes.result.content.map(normalizeDikshaItem).filter(Boolean);
+        if (probeNormalized.length > 0) {
+          hasBoardContentAnyGrade = true;
+        }
+      }
+    } catch (pErr) {
+      console.warn(`[SEARCH LADDER DIAGNOSTIC PROBE] Probe failed for ${board}: ${pErr.message}`);
+    }
+
+    const failureReason = hasBoardContentAnyGrade ? 'GRADE_TAG_MISMATCH' : 'NO_CONTENT_PUBLISHED';
+    const failureMessage = hasBoardContentAnyGrade
+      ? `${displayBoard} has digital textbooks published on DIKSHA, but none tagged specifically for ${displayClass} (grade-level tagging discrepancy).`
+      : `${displayBoard} has no digital textbooks published on DIKSHA yet.`;
 
     const noContentResult = {
       success: true,
@@ -1237,9 +1294,9 @@ async function searchDikshaBooks(options = {}) {
       limit: requestedLimit,
       offset: parseInt(offset, 10) || 0,
       books: [],
-      reason: 'NO_CONTENT_PUBLISHED',
+      reason: failureReason,
       resolvedVia: 'none',
-      message: `${displayBoard} has no ${displayClass} digital textbooks published on DIKSHA yet.`,
+      message: failureMessage,
       executedRungs: executedRungs
     };
 

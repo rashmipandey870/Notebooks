@@ -1,6 +1,7 @@
 /**
  * Supported Indian State & Central Boards Configuration
  * Maps API board codes to DIKSHA Sunbird framework board filter values.
+ * Includes verified DIKSHA medium taxonomy aliases (e.g., Bengali/Bangla, Odia/Oriya, Arabi/Arabic, Pharsi/Persian).
  */
 
 const BOARDS = [
@@ -13,7 +14,8 @@ const BOARDS = [
     state: 'National',
     badgeColor: '#2563eb',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['English', 'Hindi', 'Urdu']
+    supportedMediums: ['English', 'Hindi', 'Urdu', 'Sanskrit', 'Bengali', 'Gujarati', 'Punjabi', 'Tamil', 'Assamese', 'Maithili'],
+    dikshaMediumAliases: ['English', 'ENGLISH', 'Hindi', 'HINDI', 'Urdu', 'URDU', 'Sanskrit', 'SANKRIT', 'Bengali', 'Bangla', 'Gujarati', 'Punjabi', 'PUNJABI', 'Tamil', 'Assamese', 'Maithili']
   },
   {
     code: 'UP',
@@ -24,7 +26,8 @@ const BOARDS = [
     state: 'Uttar Pradesh',
     badgeColor: '#dc2626',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Hindi', 'English']
+    supportedMediums: ['Hindi', 'English'],
+    dikshaMediumAliases: ['Hindi', 'HINDI', 'English', 'ENGLISH']
   },
   {
     code: 'MP',
@@ -35,7 +38,8 @@ const BOARDS = [
     state: 'Madhya Pradesh',
     badgeColor: '#059669',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Hindi', 'English']
+    supportedMediums: ['Hindi', 'English'],
+    dikshaMediumAliases: ['Hindi', 'HINDI', 'English', 'ENGLISH']
   },
   {
     code: 'MH',
@@ -46,7 +50,8 @@ const BOARDS = [
     state: 'Maharashtra',
     badgeColor: '#7c3aed',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Marathi', 'English', 'Hindi', 'Urdu']
+    supportedMediums: ['Marathi', 'English', 'Hindi', 'Urdu', 'Kannada', 'Bengali', 'Gujarati'],
+    dikshaMediumAliases: ['Marathi', 'MARATHI', 'English', 'ENGLISH', 'Hindi', 'HINDI', 'Urdu', 'URDU', 'Kannada', 'Bengali', 'Bangla', 'Gujarati']
   },
   {
     code: 'BIHAR',
@@ -57,7 +62,8 @@ const BOARDS = [
     state: 'Bihar',
     badgeColor: '#d97706',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Hindi', 'English', 'Urdu']
+    supportedMediums: ['Hindi', 'English', 'Urdu', 'Arabi', 'Pharsi'],
+    dikshaMediumAliases: ['Hindi', 'HINDI', 'English', 'ENGLISH', 'Urdu', 'URDU', 'Arabi', 'Arabic', 'Pharsi', 'Persian']
   },
   {
     code: 'RJ',
@@ -68,7 +74,8 @@ const BOARDS = [
     state: 'Rajasthan',
     badgeColor: '#ea580c',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Hindi', 'English']
+    supportedMediums: ['Hindi', 'English', 'Sanskrit'],
+    dikshaMediumAliases: ['Hindi', 'HINDI', 'English', 'ENGLISH', 'Sanskrit', 'SANKRIT']
   },
   {
     code: 'TN',
@@ -79,7 +86,8 @@ const BOARDS = [
     state: 'Tamil Nadu',
     badgeColor: '#0891b2',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Tamil', 'English']
+    supportedMediums: ['Tamil', 'English'],
+    dikshaMediumAliases: ['Tamil', 'TAMIL', 'English', 'ENGLISH']
   },
   {
     code: 'KA',
@@ -90,7 +98,8 @@ const BOARDS = [
     state: 'Karnataka',
     badgeColor: '#4f46e5',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Kannada', 'English', 'Hindi', 'Urdu']
+    supportedMediums: ['Kannada', 'English', 'Hindi', 'Marathi', 'Tamil', 'Telugu', 'Urdu', 'Sanskrit'],
+    dikshaMediumAliases: ['Kannada', 'KANNADA', 'English', 'ENGLISH', 'Hindi', 'HINDI', 'Marathi', 'Tamil', 'Telugu', 'Urdu', 'Sanskrit']
   },
   {
     code: 'WB',
@@ -101,7 +110,8 @@ const BOARDS = [
     state: 'West Bengal',
     badgeColor: '#be123c',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Bengali', 'English', 'Hindi']
+    supportedMediums: ['Bengali', 'English', 'Hindi'],
+    dikshaMediumAliases: ['Bengali', 'Bangla', 'bengali', 'BENGALI', 'English', 'ENGLISH', 'Hindi', 'HINDI']
   },
   {
     code: 'GJ',
@@ -112,7 +122,8 @@ const BOARDS = [
     state: 'Gujarat',
     badgeColor: '#15803d',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Gujarati', 'English', 'Hindi']
+    supportedMediums: ['Gujarati', 'English', 'Hindi'],
+    dikshaMediumAliases: ['Gujarati', 'Gujrati', 'gujarati', 'GUJARATI', 'English', 'ENGLISH', 'Hindi', 'HINDI']
   },
   {
     code: 'KL',
@@ -123,7 +134,8 @@ const BOARDS = [
     state: 'Kerala',
     badgeColor: '#0369a1',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Malayalam', 'English']
+    supportedMediums: ['Malayalam', 'English', 'Urdu', 'Sanskrit', 'Kannada', 'Arabic'],
+    dikshaMediumAliases: ['Malayalam', 'MALAYALAM', 'English', 'ENGLISH', 'Urdu', 'Sanskrit', 'Kannada', 'Arabic', 'Arabi']
   },
   {
     code: 'AP',
@@ -134,7 +146,8 @@ const BOARDS = [
     state: 'Andhra Pradesh',
     badgeColor: '#854d0e',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Telugu', 'English']
+    supportedMediums: ['Telugu', 'English', 'Tamil', 'Kannada', 'Oriya', 'Urdu', 'Sanskrit'],
+    dikshaMediumAliases: ['Telugu', 'TELUGU', 'English', 'ENGLISH', 'Tamil', 'Kannada', 'Oriya', 'Odia', 'Urdu', 'Sanskrit']
   },
   {
     code: 'TS',
@@ -145,7 +158,8 @@ const BOARDS = [
     state: 'Telangana',
     badgeColor: '#6b21a8',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Telugu', 'English', 'Urdu']
+    supportedMediums: ['Telugu', 'English', 'Urdu', 'Tamil', 'Hindi', 'Kannada', 'Marathi', 'Bengali'],
+    dikshaMediumAliases: ['Telugu', 'TELUGU', 'English', 'ENGLISH', 'Urdu', 'Tamil', 'Hindi', 'Kannada', 'Marathi', 'Bengali', 'Bangla']
   },
   {
     code: 'PB',
@@ -156,7 +170,8 @@ const BOARDS = [
     state: 'Punjab',
     badgeColor: '#991b1b',
     supportedClasses: ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'],
-    supportedMediums: ['Punjabi', 'English', 'Hindi']
+    supportedMediums: ['Punjabi', 'English', 'Hindi'],
+    dikshaMediumAliases: ['Punjabi', 'PUNJABI', 'punjabi', 'English', 'ENGLISH', 'Hindi', 'HINDI']
   }
 ];
 
