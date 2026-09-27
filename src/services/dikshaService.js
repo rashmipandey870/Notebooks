@@ -1025,6 +1025,47 @@ async function getDikshaBookById(identifier) {
 }
 
 /**
+ * Deduplicate books by primary content identifier (dikshaId or id)
+ */
+function dedupeByIdentifier(books) {
+  if (!Array.isArray(books)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const b of books) {
+    const key = b.dikshaId || b.id;
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    result.push(b);
+  }
+  return result;
+}
+
+/**
+ * Secondary-layer guard: Deduplicate books by composite metadata key
+ * Key: (title, subject[0], gradeLevel[0], medium.sort().join(','), board)
+ * Preserves distinct medium editions (e.g. Gujarati vs English editions of same book)
+ */
+function dedupeByCompositeKey(books) {
+  if (!Array.isArray(books)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const b of books) {
+    const title = (b.title || '').toLowerCase().trim();
+    const grade = (Array.isArray(b.gradeLevel) ? b.gradeLevel[0] : (b.gradeLevel || '')).toString().toLowerCase().trim();
+    const subj = (Array.isArray(b.subject) ? b.subject[0] : (b.subject || '')).toString().toLowerCase().trim();
+    const mediumArr = Array.isArray(b.medium) ? [...b.medium].sort() : [b.medium || ''];
+    const mediumStr = mediumArr.join(',').toLowerCase().trim();
+    const board = (b.board || '').toString().toLowerCase().trim();
+
+    const compositeKey = `${title}|${subj}|${grade}|${mediumStr}|${board}`;
+    if (seen.has(compositeKey)) continue;
+    seen.add(compositeKey);
+    result.push(b);
+  }
+  return result;
+}
+
+/**
  * Search textbooks & notebooks across DIKSHA portal
  */
 async function searchDikshaBooks(options = {}) {
@@ -1107,7 +1148,12 @@ async function searchDikshaBooks(options = {}) {
 
     const count = response.result ? (response.result.count || 0) : 0;
     const contents = response.result ? (response.result.content || []) : [];
-    let normalizedBooks = contents.map(normalizeDikshaItem).filter(Boolean);
+    
+    // Primary Deduplication Pass: Filter by identifier and composite metadata key
+    const rawNormalizedBooks = contents.map(normalizeDikshaItem).filter(Boolean);
+    const dedupedById = dedupeByIdentifier(rawNormalizedBooks);
+    let normalizedBooks = dedupeByCompositeKey(dedupedById);
+    let rawDuplicatesCount = rawNormalizedBooks.length - normalizedBooks.length;
 
     // SMART BOARD FALLBACK: If strict board filter returned 0 books, search by state name / regional medium
     if (normalizedBooks.length === 0 && board) {
@@ -1133,9 +1179,12 @@ async function searchDikshaBooks(options = {}) {
         const fallbackRes = await makePostRequest('/content/v1/search', fallbackPayload);
         if (fallbackRes && !fallbackRes.error && fallbackRes.result && fallbackRes.result.content) {
           const fallbackContents = fallbackRes.result.content || [];
-          const fallbackBooks = fallbackContents.map(normalizeDikshaItem).filter(Boolean);
+          const rawFallbackBooks = fallbackContents.map(normalizeDikshaItem).filter(Boolean);
+          const fallbackDedupedById = dedupeByIdentifier(rawFallbackBooks);
+          const fallbackBooks = dedupeByCompositeKey(fallbackDedupedById);
           if (fallbackBooks.length > 0) {
             normalizedBooks = fallbackBooks;
+            rawDuplicatesCount = rawFallbackBooks.length - fallbackBooks.length;
           }
         }
       } catch (fErr) {
@@ -1215,7 +1264,9 @@ async function searchDikshaBooks(options = {}) {
       total: count > 0 ? count : finalBooks.length,
       limit: requestedLimit,
       offset: parseInt(offset, 10),
-      books: finalBooks
+      books: finalBooks,
+      rawDuplicatesCount: rawDuplicatesCount,
+      postDedupDuplicatesCount: finalBooks.length - new Set(finalBooks.map(b => b.dikshaId || b.id)).size
     };
 
     cache.set(cacheKey, resultData);
@@ -1237,5 +1288,7 @@ module.exports = {
   verifyCandidateIdentity,
   validateBookResource,
   validateBookTOC,
-  createNormalizedBookModel
+  createNormalizedBookModel,
+  dedupeByIdentifier,
+  dedupeByCompositeKey
 };

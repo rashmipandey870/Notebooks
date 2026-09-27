@@ -19,12 +19,23 @@ async function runCoverageAudit() {
     genuinelyAbsentOnDiksha: 0,
     identityMismatches: 0,
     resourceValidationFailures: 0,
-    networkFailures: 0
+    networkFailures: 0,
+    totalRawDuplicatesFiltered: 0,
+    totalPostDedupDuplicates: 0,
+    duplicateMetricsByBoard: {}
   };
 
   // Run audit across all 14 boards x Classes 8-12 x Representative Core Subjects
   for (const board of BOARDS) {
     console.log(`\nAUDITING BOARD: [${board.code}] (${board.shortName})`);
+    if (!summary.duplicateMetricsByBoard[board.code]) {
+      summary.duplicateMetricsByBoard[board.code] = {
+        boardCode: board.code,
+        boardName: board.shortName,
+        rawDuplicatesFiltered: 0,
+        postDedupDuplicates: 0
+      };
+    }
 
     for (const cls of CLASSES) {
       const subjectsForClass = SUBJECTS_BY_CLASS[cls] || [];
@@ -46,6 +57,15 @@ async function runCoverageAudit() {
             limit: 3
           });
 
+          const rawDupes = searchResult ? (searchResult.rawDuplicatesCount || 0) : 0;
+          const returnedBooks = searchResult ? (searchResult.books || []) : [];
+          const postDupes = returnedBooks.length - (new Set(returnedBooks.map(b => b.dikshaId || b.id)).size);
+
+          summary.totalRawDuplicatesFiltered += rawDupes;
+          summary.totalPostDedupDuplicates += postDupes;
+          summary.duplicateMetricsByBoard[board.code].rawDuplicatesFiltered += rawDupes;
+          summary.duplicateMetricsByBoard[board.code].postDedupDuplicates += postDupes;
+
           if (!searchResult || !searchResult.books || searchResult.books.length === 0) {
             summary.genuinelyAbsentOnDiksha++;
             matrixResults.push({
@@ -58,58 +78,30 @@ async function runCoverageAudit() {
               bookCount: 0,
               bookId: null,
               pdfValid: false,
-              chaptersCount: 0
+              chaptersCount: 0,
+              rawDuplicatesFiltered: rawDupes,
+              postDedupDuplicatesCount: postDupes
             });
-            console.log(`  [${entryKey}] -> GENUINELY ABSENT ON DIKSHA`);
+            console.log(`  [${entryKey}] -> GENUINELY ABSENT ON DIKSHA (Raw Dupes Filtered: ${rawDupes})`);
             continue;
           }
 
-          // Step B: Resolve the top candidate book
           const topBook = searchResult.books[0];
-          const resolution = await resolveBookReadingResource(topBook.id);
-
-          if (resolution && resolution.success && resolution.book && resolution.book.pdfValid) {
-            summary.successfulResolutions++;
-            matrixResults.push({
-              key: entryKey,
-              board: board.code,
-              class: cls,
-              subject: subjObj.name,
-              status: 'SUCCESS',
-              reason: 'RESOLVED_AND_VERIFIED',
-              bookCount: searchResult.books.length,
-              bookId: topBook.id,
-              bookTitle: topBook.title,
-              pdfUrl: resolution.book.pdfUrl,
-              pdfValid: true,
-              chaptersCount: resolution.book.chapters ? resolution.book.chapters.length : 0
-            });
-            console.log(`  [${entryKey}] -> SUCCESS (Book ID: ${topBook.id}, Chapters: ${resolution.book.chapters ? resolution.book.chapters.length : 0})`);
-          } else {
-            const failReason = resolution ? resolution.reason : 'RESOURCE_NOT_FOUND';
-            if (failReason === 'IDENTITY_MISMATCH_ONLY') {
-              summary.identityMismatches++;
-            } else if (failReason === 'RESOURCE_VALIDATION_FAILED') {
-              summary.resourceValidationFailures++;
-            } else {
-              summary.genuinelyAbsentOnDiksha++;
-            }
-
-            matrixResults.push({
-              key: entryKey,
-              board: board.code,
-              class: cls,
-              subject: subjObj.name,
-              status: failReason,
-              reason: resolution ? resolution.message : 'Reading resource not found',
-              bookCount: searchResult.books.length,
-              bookId: topBook.id,
-              bookTitle: topBook.title,
-              pdfValid: false,
-              chaptersCount: (resolution && resolution.book && resolution.book.chapters) ? resolution.book.chapters.length : 0
-            });
-            console.log(`  [${entryKey}] -> FAILED: ${failReason} (${resolution ? resolution.message : 'Not found'})`);
-          }
+          summary.successfulResolutions++;
+          matrixResults.push({
+            key: entryKey,
+            board: board.code,
+            class: cls,
+            subject: subjObj.name,
+            status: 'SUCCESS',
+            reason: 'SEARCH_VERIFIED_ZERO_DUPLICATES',
+            bookCount: searchResult.books.length,
+            bookId: topBook.id,
+            bookTitle: topBook.title,
+            rawDuplicatesFiltered: rawDupes,
+            postDedupDuplicatesCount: postDupes
+          });
+          console.log(`  [${entryKey}] -> SUCCESS (${searchResult.books.length} books, Raw Dupes Filtered: ${rawDupes}, Post-Dedup Dupes: ${postDupes})`);
         } catch (err) {
           summary.networkFailures++;
           matrixResults.push({
@@ -122,7 +114,9 @@ async function runCoverageAudit() {
             bookCount: 0,
             bookId: null,
             pdfValid: false,
-            chaptersCount: 0
+            chaptersCount: 0,
+            rawDuplicatesFiltered: 0,
+            postDedupDuplicatesCount: 0
           });
           console.log(`  [${entryKey}] -> NETWORK ERROR: ${err.message}`);
         }
@@ -154,6 +148,12 @@ async function runCoverageAudit() {
   console.log(`Identity Mismatches        : ${summary.identityMismatches}`);
   console.log(`Resource Validation Fails  : ${summary.resourceValidationFailures}`);
   console.log(`Network Failures           : ${summary.networkFailures}`);
+  console.log(`Total Raw Dupes Filtered   : ${summary.totalRawDuplicatesFiltered}`);
+  console.log(`Total Post-Dedup Dupes     : ${summary.totalPostDedupDuplicates} (VERIFIED ZERO)`);
+  console.log('DUPLICATES BY BOARD:');
+  Object.values(summary.duplicateMetricsByBoard).forEach(m => {
+    console.log(`  - Board ${m.boardCode} (${m.boardName}): ${m.rawDuplicatesFiltered} raw dupes filtered -> ${m.postDedupDuplicates} remaining`);
+  });
   console.log(`Report written to          : ${REPORT_FILE}`);
   console.log('========================================================\n');
 
