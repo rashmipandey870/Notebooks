@@ -559,10 +559,34 @@ function normalizeChapterTitleKey(title) {
 }
 
 /**
+ * Helper to check if node title script mismatches requested medium (e.g. Tamil script titles in English medium book)
+ */
+function hasScriptMismatch(title, targetMedium = 'English') {
+  if (!title || typeof title !== 'string') return false;
+  const tm = (Array.isArray(targetMedium) ? targetMedium.join(' ') : String(targetMedium || 'English')).toLowerCase();
+
+  const hasTamil = /[\u0B80-\u0BFF]/.test(title);
+  const hasTelugu = /[\u0C00-\u0C7F]/.test(title);
+  const hasHindi = /[\u0900-\u097F]/.test(title);
+  const hasBengali = /[\u0980-\u09FF]/.test(title);
+  const hasGujarati = /[\u0A80-\u0AFF]/.test(title);
+  const hasMalayalam = /[\u0D00-\u0D7F]/.test(title);
+  const hasKannada = /[\u0C80-\u0CFF]/.test(title);
+
+  // If requested medium is English/EM, ignore nodes whose titles contain non-Latin regional scripts
+  if (tm.includes('english') || tm.includes('em')) {
+    if (hasTamil || hasTelugu || hasHindi || hasBengali || hasGujarati || hasMalayalam || hasKannada) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Recursively parse multi-level DIKSHA hierarchy nodes (Levels 1 to 4)
  * Deduplicates by normalized title key (merging child/leaf info into parent TOC row)
  */
-function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1 }, grade = 'Class 10', subject = 'General', seenTitleMap = new Map(), rootBookPdfUrl = null) {
+function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1 }, grade = 'Class 10', subject = 'General', seenTitleMap = new Map(), rootBookPdfUrl = null, targetMedium = 'English') {
   let chapters = [];
   if (!Array.isArray(nodes)) return chapters;
 
@@ -580,7 +604,8 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
     const childNodes = node.children || node.childNodes || node.contents || node.linkedContent || node.units;
     const hasChildren = Array.isArray(childNodes) && childNodes.length > 0;
 
-    const isIgnored = isIgnoredNodeTitle(title, node.mimeType, node.primaryCategory, node.contentType, hasChildren);
+    const scriptMismatch = hasScriptMismatch(title, targetMedium);
+    const isIgnored = scriptMismatch || isIgnoredNodeTitle(title, node.mimeType, node.primaryCategory, node.contentType, hasChildren);
     const titleKey = normalizeChapterTitleKey(title);
 
     const printedStart = (node.startPage && !isNaN(parseInt(node.startPage, 10))) ? parseInt(node.startPage, 10) : null;
@@ -637,7 +662,7 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
     if (Array.isArray(childNodes) && childNodes.length > 0) {
       const nextLevel = isIgnored ? level : level + 1;
       const nextParentPdf = hasOwnPdf ? foundPdf : rootPdf;
-      const childChapters = parseDikshaHierarchyNodes(childNodes, nextLevel, nextParentPdf, state, grade, subject, seenTitleMap, rootPdf);
+      const childChapters = parseDikshaHierarchyNodes(childNodes, nextLevel, nextParentPdf, state, grade, subject, seenTitleMap, rootPdf, targetMedium);
       chapters = chapters.concat(childChapters);
     }
   }
@@ -931,6 +956,7 @@ async function resolveBookReadingResource(bookId) {
     || [];
 
   const rootBookPdfUrl = identityVerifiedCandidates[0] ? identityVerifiedCandidates[0].url : (validCandidates[0] ? validCandidates[0].url : null);
+  const bookMedium = (normalizedBook.medium && normalizedBook.medium[0]) ? normalizedBook.medium[0] : 'English';
   const chapters = parseDikshaHierarchyNodes(
     rootNodes,
     1,
@@ -939,7 +965,8 @@ async function resolveBookReadingResource(bookId) {
     grade,
     subject,
     new Map(),
-    rootBookPdfUrl
+    rootBookPdfUrl,
+    bookMedium
   );
 
   // Step 8: Select primary resource from identity verified candidates or first chapter PDF
