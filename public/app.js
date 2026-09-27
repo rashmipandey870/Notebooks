@@ -278,7 +278,7 @@ async function openBookModal(dikshaId, initialTitle = 'Loading Book...') {
         ? book.proxyPdfUrl
         : (firstChWithPdf && firstChWithPdf.proxyPdfUrl !== 'null' ? firstChWithPdf.proxyPdfUrl : null);
 
-      if (book.pdfValid && activeProxyUrl && activeProxyUrl !== 'null' && activeProxyUrl !== 'undefined') {
+      if ((book.pdfValid || activeProxyUrl) && activeProxyUrl && activeProxyUrl !== 'null' && activeProxyUrl !== 'undefined') {
         currentPdfProxyUrl = activeProxyUrl;
         const initialStartPage = (firstChWithPdf && (firstChWithPdf.pdfStartPage || firstChWithPdf.startPage)) || 1;
         loadPdfDocument(activeProxyUrl, initialStartPage);

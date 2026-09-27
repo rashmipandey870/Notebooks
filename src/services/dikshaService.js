@@ -627,7 +627,38 @@ async function resolveBookReadingResource(bookId) {
   }
 
   const rawContent = bookReadRes.result.content;
-  const normalizedBook = normalizeDikshaItem(rawContent);
+  let normalizedBook = normalizeDikshaItem(rawContent);
+
+  if (!normalizedBook) {
+    const rawGrade = Array.isArray(rawContent.gradeLevel) ? rawContent.gradeLevel[0] : (rawContent.gradeLevel || 'Class 10');
+    const rawSubject = Array.isArray(rawContent.subject) ? rawContent.subject[0] : (rawContent.subject || 'General');
+    const rawBoard = Array.isArray(rawContent.board) ? rawContent.board[0] : (rawContent.board || 'Central/State Board');
+    const resolvedPdf = resolvePdfUrlForItem(rawContent);
+
+    normalizedBook = {
+      id: rawContent.identifier,
+      dikshaId: rawContent.identifier,
+      title: rawContent.name ? rawContent.name.trim() : 'Untitled Textbook',
+      description: rawContent.description || `Class ${rawGrade} ${rawSubject} learning resource`,
+      board: rawBoard,
+      gradeLevel: Array.isArray(rawContent.gradeLevel) ? rawContent.gradeLevel : [rawGrade],
+      subject: Array.isArray(rawContent.subject) ? rawContent.subject : [rawSubject],
+      medium: Array.isArray(rawContent.medium) ? rawContent.medium : ['English'],
+      contentType: rawContent.contentType || 'TextBook',
+      primaryCategory: rawContent.primaryCategory || 'Digital Textbook',
+      mimeType: rawContent.mimeType || 'application/pdf',
+      posterImage: rawContent.posterImage || rawContent.appIcon || null,
+      pdfUrl: resolvedPdf,
+      proxyPdfUrl: resolvedPdf ? `/api/v1/pdf/proxy?url=${encodeURIComponent(resolvedPdf)}` : null,
+      downloadUrl: resolvedPdf ? `/api/v1/download?url=${encodeURIComponent(resolvedPdf)}&filename=${encodeURIComponent(`${rawGrade}_${rawSubject}_${rawBoard}_Textbook`.replace(/[^a-zA-Z0-9_-]/g, '_'))}` : null,
+      pdfValid: !!resolvedPdf,
+      tocUrl: rawContent.toc_url || null,
+      leafNodesCount: rawContent.leafNodesCount || 0,
+      createdOn: rawContent.createdOn || null,
+      lastUpdatedOn: rawContent.lastUpdatedOn || rawContent.lastPublishedOn || null,
+      publisher: (rawContent.originData && rawContent.originData.organisation) ? rawContent.originData.organisation[0] : (rawContent.organisation ? rawContent.organisation[0] : 'NCERT')
+    };
+  }
 
   const grade = normalizedBook.gradeLevel[0] || 'Class 10';
   const subject = normalizedBook.subject[0] || 'General';
@@ -768,28 +799,31 @@ async function resolveBookReadingResource(bookId) {
     subject
   );
 
-  // Step 8: Select primary resource ONLY from identity verified candidates
+  // Step 8: Select primary resource from identity verified candidates or first chapter PDF
   let selectedResource = null;
   if (identityVerifiedCandidates.length > 0) {
     const bookLevelCand = identityVerifiedCandidates.find(c => c.source === 'book' || c.isBookLevel);
     selectedResource = bookLevelCand || identityVerifiedCandidates[0];
   }
 
-  if (selectedResource) {
-    console.log(`[RESOLVER SUCCESS] Selected resource: ${selectedResource.url}`);
+  const firstChapterPdfUrl = (chapters && chapters.find(c => c.pdfUrl)) ? chapters.find(c => c.pdfUrl).pdfUrl : null;
+  const activeResourceUrl = selectedResource ? selectedResource.url : firstChapterPdfUrl;
+
+  if (activeResourceUrl) {
+    console.log(`[RESOLVER SUCCESS] Selected resource: ${activeResourceUrl}`);
     console.log(`========================================================\n`);
 
-    const proxyPdfUrl = `/api/v1/pdf/proxy?url=${encodeURIComponent(selectedResource.url)}`;
+    const proxyPdfUrl = `/api/v1/pdf/proxy?url=${encodeURIComponent(activeResourceUrl)}`;
     const cleanFilename = `${grade}_${subject}_${normalizedBook.board}_Textbook`.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const downloadUrl = `/api/v1/download?url=${encodeURIComponent(selectedResource.url)}&filename=${encodeURIComponent(cleanFilename)}`;
+    const downloadUrl = `/api/v1/download?url=${encodeURIComponent(activeResourceUrl)}&filename=${encodeURIComponent(cleanFilename)}`;
 
-    normalizedBook.pdfUrl = selectedResource.url;
+    normalizedBook.pdfUrl = activeResourceUrl;
     normalizedBook.proxyPdfUrl = proxyPdfUrl;
     normalizedBook.downloadUrl = downloadUrl;
     normalizedBook.pdfValid = true;
-    normalizedBook.hasCompletePdf = selectedResource.isBookLevel || chapters.length === 0;
+    normalizedBook.hasCompletePdf = (selectedResource && selectedResource.isBookLevel) || chapters.length === 0;
     normalizedBook.chapters = chapters;
-    normalizedBook.resource = selectedResource;
+    normalizedBook.resource = selectedResource || { url: activeResourceUrl, title: normalizedBook.title };
     normalizedBook.discoveredCandidates = uniqueCandidates.length;
 
     const result = {
