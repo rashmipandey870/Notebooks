@@ -1067,6 +1067,7 @@ function dedupeByCompositeKey(books) {
 
 /**
  * Search textbooks & notebooks across DIKSHA portal
+ * Uses a 5-Rung Progressive Relaxation Ladder for state board queries
  */
 async function searchDikshaBooks(options = {}) {
   const {
@@ -1085,196 +1086,249 @@ async function searchDikshaBooks(options = {}) {
     return cache.get(cacheKey);
   }
 
-  const filters = {};
+  const boardObj = board ? getBoardByCode(board) : null;
+  const stateName = boardObj ? (boardObj.state || boardObj.shortName || boardObj.name) : (board || '');
+  const fallbackMedium = (boardObj && boardObj.supportedMediums) ? boardObj.supportedMediums[0] : null;
 
-  if (board) {
-    const boardObj = getBoardByCode(board);
-    filters.board = boardObj ? (boardObj.dikshaAliases || [boardObj.dikshaFilter]) : [board];
-  }
-
-  if (gradeLevel) {
-    const rawClass = Array.isArray(gradeLevel) ? gradeLevel[0] : gradeLevel;
-    const numMatch = String(rawClass).match(/\d+/);
-    const num = numMatch ? numMatch[0] : '';
-    const romanMap = { '8': 'VIII', '9': 'IX', '10': 'X', '11': 'XI', '12': 'XII' };
-    const roman = romanMap[num] || '';
-
-    filters.gradeLevel = [
-      rawClass.startsWith('Class') ? rawClass : `Class ${rawClass}`,
-      num ? `Class ${num}` : null,
-      roman ? `Class ${roman}` : null,
-      num ? `${num}th` : null,
-      num ? `${num}` : null
-    ].filter(Boolean);
-  }
-
-  if (medium) {
-    filters.medium = Array.isArray(medium) ? medium : [medium];
-  }
-
-  if (subject) {
-    filters.subject = Array.isArray(subject) ? subject : [subject];
-  }
-
-  if (contentType) {
-    filters.primaryCategory = Array.isArray(contentType) ? contentType : [contentType];
-  } else {
-    filters.primaryCategory = [
-      'Digital Textbook',
-      'eTextbook',
-      'TextBook',
-      'eTextBook'
-    ];
+  // Generate medium case variants to prevent case-sensitive taxonomy zeroing (e.g. 'PUNJABI' vs 'Punjabi', 'ENGLISH' vs 'English')
+  let mediumFilterList = null;
+  if (medium || fallbackMedium) {
+    const rawM = medium || fallbackMedium;
+    const mArray = Array.isArray(rawM) ? rawM : [rawM];
+    const mVariants = new Set();
+    mArray.forEach(m => {
+      if (m && typeof m === 'string') {
+        const s = m.trim();
+        mVariants.add(s);
+        mVariants.add(s.toLowerCase());
+        mVariants.add(s.toUpperCase());
+        mVariants.add(s.charAt(0).toUpperCase() + s.slice(1).toLowerCase());
+      }
+    });
+    mediumFilterList = Array.from(mVariants);
   }
 
   const requestedLimit = parseInt(limit, 10) || 20;
   const apiFetchLimit = Math.max(requestedLimit * 5, 100);
 
-  const payload = {
-    request: {
-      filters: filters,
-      query: query || '',
-      limit: apiFetchLimit,
-      offset: parseInt(offset, 10) || 0
-    }
+  // Progressive Relaxation Fallback Ladder:
+  // Rung 1: board + gradeLevel + subject + medium (strict taxonomy filter)
+  // Rung 2: board + gradeLevel + subject (drop medium filter)
+  // Rung 3: board + gradeLevel (drop subject filter)
+  // Rung 4: stateName free-text + gradeLevel (drop board taxonomy filter)
+  // Rung 5: stateName free-text only (drop gradeLevel filter too)
+
+  const rungNames = {
+    1: 'primary_query',
+    2: 'fallback_rung_2_drop_medium',
+    3: 'fallback_rung_3_drop_subject',
+    4: 'fallback_rung_4_state_query_class',
+    5: 'fallback_rung_5_state_query_only'
   };
 
-  try {
-    const response = await makePostRequest('/content/v1/search', payload);
+  let normalizedBooks = [];
+  let rawDuplicatesCount = 0;
+  let resolvedVia = 'none';
+  let totalApiCount = 0;
+  const executedRungs = [];
 
-    if (response.error) {
-      return { success: false, total: 0, books: [], message: `Search API returned status ${response.statusCode}` };
+  for (let rung = 1; rung <= 5; rung++) {
+    // Skip redundant rungs if optional parameters were not provided
+    if (rung === 2 && (!medium && !fallbackMedium)) continue;
+    if (rung === 3 && !subject) continue;
+    if (rung === 4 && !board && !stateName) continue;
+    if (rung === 5 && gradeLevel) continue; // Do not drop gradeLevel in Rung 5 if user explicitly requested a specific class
+
+    const rungFilters = {};
+
+    // Board taxonomy filter (Rungs 1 - 3)
+    if (rung <= 3 && board) {
+      rungFilters.board = boardObj ? (boardObj.dikshaAliases || [boardObj.dikshaFilter]) : [board];
     }
 
-    const count = response.result ? (response.result.count || 0) : 0;
-    const contents = response.result ? (response.result.content || []) : [];
-    
-    // Primary Deduplication Pass: Filter by identifier and composite metadata key
-    const rawNormalizedBooks = contents.map(normalizeDikshaItem).filter(Boolean);
-    const dedupedById = dedupeByIdentifier(rawNormalizedBooks);
-    let normalizedBooks = dedupeByCompositeKey(dedupedById);
-    let rawDuplicatesCount = rawNormalizedBooks.length - normalizedBooks.length;
+    // Grade level filter (Rungs 1 - 4)
+    if (rung <= 4 && gradeLevel) {
+      const rawClass = Array.isArray(gradeLevel) ? gradeLevel[0] : gradeLevel;
+      const numMatch = String(rawClass).match(/\d+/);
+      const num = numMatch ? numMatch[0] : '';
+      const romanMap = { '8': 'VIII', '9': 'IX', '10': 'X', '11': 'XI', '12': 'XII' };
+      const roman = romanMap[num] || '';
 
-    // SMART BOARD FALLBACK: If strict board filter returned 0 books, search by state name / regional medium
-    if (normalizedBooks.length === 0 && board) {
-      const boardObj = getBoardByCode(board);
-      const fallbackMedium = (boardObj && boardObj.supportedMediums) ? boardObj.supportedMediums[0] : null;
-
-      const fallbackFilters = { ...filters };
-      delete fallbackFilters.board;
-      if (fallbackMedium && !medium) {
-        fallbackFilters.medium = [fallbackMedium];
-      }
-
-      const fallbackPayload = {
-        request: {
-          filters: fallbackFilters,
-          query: query || (boardObj ? boardObj.state : ''),
-          limit: apiFetchLimit,
-          offset: parseInt(offset, 10) || 0
-        }
-      };
-
-      try {
-        const fallbackRes = await makePostRequest('/content/v1/search', fallbackPayload);
-        if (fallbackRes && !fallbackRes.error && fallbackRes.result && fallbackRes.result.content) {
-          const fallbackContents = fallbackRes.result.content || [];
-          const rawFallbackBooks = fallbackContents.map(normalizeDikshaItem).filter(Boolean);
-          const fallbackDedupedById = dedupeByIdentifier(rawFallbackBooks);
-          const fallbackBooks = dedupeByCompositeKey(fallbackDedupedById);
-          if (fallbackBooks.length > 0) {
-            normalizedBooks = fallbackBooks;
-            rawDuplicatesCount = rawFallbackBooks.length - fallbackBooks.length;
-          }
-        }
-      } catch (fErr) {
-        console.warn(`[SEARCH FALLBACK] Board search fallback failed: ${fErr.message}`);
-      }
+      rungFilters.gradeLevel = [
+        rawClass.startsWith('Class') ? rawClass : `Class ${rawClass}`,
+        num ? `Class ${num}` : null,
+        roman ? `Class ${roman}` : null,
+        num ? `${num}th` : null,
+        num ? `${num}` : null
+      ].filter(Boolean);
     }
 
-    // SMART RANKING ENGINE:
-    // 1. Prioritize full textbook collections (mimeType === 'application/vnd.ekstep.content-collection')
-    // 2. Prioritize core academic subjects (Math, Science, Social Studies, English, Hindi, Sanskrit) over vocational training
-    // 3. Deprioritize isolated single-chapter topic files (e.g. titles starting with numbers/grammar topics)
-    const coreSubjectsList = ['mathematics', 'science', 'social science', 'social studies', 'history', 'geography', 'political science', 'civics', 'economics', 'english', 'hindi', 'sanskrit'];
+    // Subject filter (Rungs 1 - 2)
+    if (rung <= 2 && subject) {
+      rungFilters.subject = Array.isArray(subject) ? subject : [subject];
+    }
 
-    normalizedBooks.sort((a, b) => {
-      const aColl = a.mimeType === 'application/vnd.ekstep.content-collection' ? 1 : 0;
-      const bColl = b.mimeType === 'application/vnd.ekstep.content-collection' ? 1 : 0;
-      if (aColl !== bColl) return bColl - aColl;
+    // Medium filter (Rung 1)
+    if (rung === 1 && mediumFilterList && mediumFilterList.length > 0) {
+      rungFilters.medium = mediumFilterList;
+    }
 
-      const aSubj = (a.subject && a.subject[0]) ? a.subject[0].toLowerCase() : '';
-      const bSubj = (b.subject && b.subject[0]) ? b.subject[0].toLowerCase() : '';
-      const aCore = coreSubjectsList.some(cs => aSubj.includes(cs)) ? 1 : 0;
-      const bCore = coreSubjectsList.some(cs => bSubj.includes(cs)) ? 1 : 0;
-      if (aCore !== bCore) return bCore - aCore;
+    // Category filter
+    if (contentType) {
+      rungFilters.primaryCategory = Array.isArray(contentType) ? contentType : [contentType];
+    } else {
+      rungFilters.primaryCategory = [
+        'Digital Textbook',
+        'eTextbook',
+        'TextBook',
+        'eTextBook'
+      ];
+    }
 
-      const aTitle = (a.title || '').toLowerCase();
-      const bTitle = (b.title || '').toLowerCase();
-      const aChapterDoc = aTitle.match(/^(?:\d+[\.\-\s]|chapter)/) ? 1 : 0;
-      const bChapterDoc = bTitle.match(/^(?:\d+[\.\-\s]|chapter)/) ? 1 : 0;
-      if (aChapterDoc !== bChapterDoc) return aChapterDoc - bChapterDoc;
+    let rungQuery = query || '';
+    if (rung >= 4 && !query && stateName) {
+      rungQuery = stateName;
+    }
 
-      return 0;
+    const payload = {
+      request: {
+        filters: rungFilters,
+        query: rungQuery,
+        limit: apiFetchLimit,
+        offset: parseInt(offset, 10) || 0
+      }
+    };
+
+    executedRungs.push(rungNames[rung]);
+
+    try {
+      const response = await makePostRequest('/content/v1/search', payload);
+
+      if (response && !response.error && response.result && response.result.content) {
+        const count = response.result.count || 0;
+        const contents = response.result.content || [];
+
+        const rawNormalized = contents.map(normalizeDikshaItem).filter(Boolean);
+        const dedupedById = dedupeByIdentifier(rawNormalized);
+        const deduped = dedupeByCompositeKey(dedupedById);
+
+        if (deduped.length > 0) {
+          normalizedBooks = deduped;
+          rawDuplicatesCount = rawNormalized.length - deduped.length;
+          resolvedVia = rungNames[rung];
+          totalApiCount = count > 0 ? count : deduped.length;
+          console.log(`[SEARCH LADDER] Board [${board || 'ANY'}] Grade [${gradeLevel || 'ANY'}] resolved ${deduped.length} books via Rung ${rung} (${rungNames[rung]})`);
+          break;
+        }
+      }
+    } catch (rErr) {
+      console.warn(`[SEARCH LADDER] Rung ${rung} failed for ${board}: ${rErr.message}`);
+    }
+  }
+
+  // EXPLICIT GAP DIAGNOSTICS: If all rungs return zero, flag as NO_CONTENT_PUBLISHED upstream gap
+  if (normalizedBooks.length === 0) {
+    const displayBoard = boardObj ? boardObj.name : (board || 'Selected Board');
+    const displayClass = gradeLevel ? (Array.isArray(gradeLevel) ? gradeLevel[0] : gradeLevel) : 'Class 8-12';
+
+    const noContentResult = {
+      success: true,
+      total: 0,
+      limit: requestedLimit,
+      offset: parseInt(offset, 10) || 0,
+      books: [],
+      reason: 'NO_CONTENT_PUBLISHED',
+      resolvedVia: 'none',
+      message: `${displayBoard} has no ${displayClass} digital textbooks published on DIKSHA yet.`,
+      executedRungs: executedRungs
+    };
+
+    cache.set(cacheKey, noContentResult);
+    return noContentResult;
+  }
+
+  // SMART RANKING ENGINE:
+  // 1. Prioritize full textbook collections (mimeType === 'application/vnd.ekstep.content-collection')
+  // 2. Prioritize core academic subjects (Math, Science, Social Studies, English, Hindi, Sanskrit) over vocational training
+  // 3. Deprioritize isolated single-chapter topic files (e.g. titles starting with numbers/grammar topics)
+  const coreSubjectsList = ['mathematics', 'science', 'social science', 'social studies', 'history', 'geography', 'political science', 'civics', 'economics', 'english', 'hindi', 'sanskrit'];
+
+  normalizedBooks.sort((a, b) => {
+    const aColl = a.mimeType === 'application/vnd.ekstep.content-collection' ? 1 : 0;
+    const bColl = b.mimeType === 'application/vnd.ekstep.content-collection' ? 1 : 0;
+    if (aColl !== bColl) return bColl - aColl;
+
+    const aSubj = (a.subject && a.subject[0]) ? a.subject[0].toLowerCase() : '';
+    const bSubj = (b.subject && b.subject[0]) ? b.subject[0].toLowerCase() : '';
+    const aCore = coreSubjectsList.some(cs => aSubj.includes(cs)) ? 1 : 0;
+    const bCore = coreSubjectsList.some(cs => bSubj.includes(cs)) ? 1 : 0;
+    if (aCore !== bCore) return bCore - aCore;
+
+    const aTitle = (a.title || '').toLowerCase();
+    const bTitle = (b.title || '').toLowerCase();
+    const aChapterDoc = aTitle.match(/^(?:\d+[\.\-\s]|chapter)/) ? 1 : 0;
+    const bChapterDoc = bTitle.match(/^(?:\d+[\.\-\s]|chapter)/) ? 1 : 0;
+    if (aChapterDoc !== bChapterDoc) return aChapterDoc - bChapterDoc;
+
+    return 0;
+  });
+
+  // SUBJECT ROUND-ROBIN INTERLEAVER:
+  // If user hasn't explicitly filtered by a single subject, balance results across subjects (Math, Science, Social, English, Hindi, Sanskrit)
+  let finalBooks = normalizedBooks;
+  if (!subject && normalizedBooks.length > 0) {
+    const subjectMap = {};
+    normalizedBooks.forEach(item => {
+      const itemSubj = (item.subject && item.subject[0]) ? item.subject[0].trim() : 'General';
+      if (!subjectMap[itemSubj]) subjectMap[itemSubj] = [];
+      subjectMap[itemSubj].push(item);
     });
 
-    // SUBJECT ROUND-ROBIN INTERLEAVER:
-    // If user hasn't explicitly filtered by a single subject, balance results across subjects (Math, Science, Social, English, Hindi, Sanskrit)
-    let finalBooks = normalizedBooks;
-    if (!subject && normalizedBooks.length > 0) {
-      const subjectMap = {};
-      normalizedBooks.forEach(item => {
-        const itemSubj = (item.subject && item.subject[0]) ? item.subject[0].trim() : 'General';
-        if (!subjectMap[itemSubj]) subjectMap[itemSubj] = [];
-        subjectMap[itemSubj].push(item);
-      });
+    // Sort subjectKeys so core academic subjects take precedence over vocational training
+    const subjectKeys = Object.keys(subjectMap).sort((sA, sB) => {
+      const sACore = coreSubjectsList.some(cs => sA.toLowerCase().includes(cs)) ? 1 : 0;
+      const sBCore = coreSubjectsList.some(cs => sB.toLowerCase().includes(cs)) ? 1 : 0;
+      return sBCore - sACore;
+    });
 
-      // Sort subjectKeys so core academic subjects take precedence over vocational training
-      const subjectKeys = Object.keys(subjectMap).sort((sA, sB) => {
-        const sACore = coreSubjectsList.some(cs => sA.toLowerCase().includes(cs)) ? 1 : 0;
-        const sBCore = coreSubjectsList.some(cs => sB.toLowerCase().includes(cs)) ? 1 : 0;
-        return sBCore - sACore;
-      });
-
-      if (subjectKeys.length > 1) {
-        const interleaved = [];
-        let added = true;
-        let round = 0;
-        while (added && interleaved.length < requestedLimit) {
-          added = false;
-          for (const sKey of subjectKeys) {
-            if (subjectMap[sKey][round]) {
-              interleaved.push(subjectMap[sKey][round]);
-              added = true;
-              if (interleaved.length >= requestedLimit) break;
-            }
+    if (subjectKeys.length > 1) {
+      const interleaved = [];
+      let added = true;
+      let round = 0;
+      while (added && interleaved.length < requestedLimit) {
+        added = false;
+        for (const sKey of subjectKeys) {
+          if (subjectMap[sKey][round]) {
+            interleaved.push(subjectMap[sKey][round]);
+            added = true;
+            if (interleaved.length >= requestedLimit) break;
           }
-          round++;
         }
-        finalBooks = interleaved;
-      } else {
-        finalBooks = normalizedBooks.slice(0, requestedLimit);
+        round++;
       }
+      finalBooks = interleaved;
     } else {
       finalBooks = normalizedBooks.slice(0, requestedLimit);
     }
-
-    const resultData = {
-      success: true,
-      total: count > 0 ? count : finalBooks.length,
-      limit: requestedLimit,
-      offset: parseInt(offset, 10),
-      books: finalBooks,
-      rawDuplicatesCount: rawDuplicatesCount,
-      postDedupDuplicatesCount: finalBooks.length - new Set(finalBooks.map(b => b.dikshaId || b.id)).size
-    };
-
-    cache.set(cacheKey, resultData);
-    return resultData;
-  } catch (err) {
-    console.error('Error querying backend search API:', err.message);
-    return { success: false, total: 0, books: [], error: err.message };
+  } else {
+    finalBooks = normalizedBooks.slice(0, requestedLimit);
   }
+
+  const resultData = {
+    success: true,
+    total: totalApiCount,
+    limit: requestedLimit,
+    offset: parseInt(offset, 10),
+    books: finalBooks,
+    resolvedVia: resolvedVia,
+    reason: resolvedVia === 'primary_query' ? 'RESOLVED_PRIMARY' : 'RESOLVED_VIA_FALLBACK',
+    rawDuplicatesCount: rawDuplicatesCount,
+    postDedupDuplicatesCount: finalBooks.length - new Set(finalBooks.map(b => b.dikshaId || b.id)).size,
+    executedRungs: executedRungs
+  };
+
+  cache.set(cacheKey, resultData);
+  return resultData;
 }
 
 module.exports = {

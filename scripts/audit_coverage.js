@@ -22,7 +22,8 @@ async function runCoverageAudit() {
     networkFailures: 0,
     totalRawDuplicatesFiltered: 0,
     totalPostDedupDuplicates: 0,
-    duplicateMetricsByBoard: {}
+    duplicateMetricsByBoard: {},
+    resolvedViaRungCounts: {}
   };
 
   // Run audit across all 14 boards x Classes 8-12 x Representative Core Subjects
@@ -33,7 +34,8 @@ async function runCoverageAudit() {
         boardCode: board.code,
         boardName: board.shortName,
         rawDuplicatesFiltered: 0,
-        postDedupDuplicates: 0
+        postDedupDuplicates: 0,
+        resolvedViaRungs: {}
       };
     }
 
@@ -60,11 +62,16 @@ async function runCoverageAudit() {
           const rawDupes = searchResult ? (searchResult.rawDuplicatesCount || 0) : 0;
           const returnedBooks = searchResult ? (searchResult.books || []) : [];
           const postDupes = returnedBooks.length - (new Set(returnedBooks.map(b => b.dikshaId || b.id)).size);
+          const resolvedRung = searchResult ? (searchResult.resolvedVia || 'none') : 'none';
 
           summary.totalRawDuplicatesFiltered += rawDupes;
           summary.totalPostDedupDuplicates += postDupes;
           summary.duplicateMetricsByBoard[board.code].rawDuplicatesFiltered += rawDupes;
           summary.duplicateMetricsByBoard[board.code].postDedupDuplicates += postDupes;
+
+          summary.resolvedViaRungCounts[resolvedRung] = (summary.resolvedViaRungCounts[resolvedRung] || 0) + 1;
+          const boardRungMap = summary.duplicateMetricsByBoard[board.code].resolvedViaRungs;
+          boardRungMap[resolvedRung] = (boardRungMap[resolvedRung] || 0) + 1;
 
           if (!searchResult || !searchResult.books || searchResult.books.length === 0) {
             summary.genuinelyAbsentOnDiksha++;
@@ -73,8 +80,10 @@ async function runCoverageAudit() {
               board: board.code,
               class: cls,
               subject: subjObj.name,
-              status: 'GENUINELY_ABSENT_ON_DIKSHA',
-              reason: 'No textbook metadata entries returned from DIKSHA search API for this filter combination',
+              status: 'NO_CONTENT_PUBLISHED',
+              reason: searchResult ? searchResult.message : 'No digital textbooks published upstream for this combination',
+              resolvedVia: resolvedRung,
+              executedRungs: searchResult ? searchResult.executedRungs : [],
               bookCount: 0,
               bookId: null,
               pdfValid: false,
@@ -82,7 +91,7 @@ async function runCoverageAudit() {
               rawDuplicatesFiltered: rawDupes,
               postDedupDuplicatesCount: postDupes
             });
-            console.log(`  [${entryKey}] -> GENUINELY ABSENT ON DIKSHA (Raw Dupes Filtered: ${rawDupes})`);
+            console.log(`  [${entryKey}] -> NO_CONTENT_PUBLISHED (Upstream gap verified, Raw Dupes: ${rawDupes})`);
             continue;
           }
 
@@ -94,14 +103,16 @@ async function runCoverageAudit() {
             class: cls,
             subject: subjObj.name,
             status: 'SUCCESS',
-            reason: 'SEARCH_VERIFIED_ZERO_DUPLICATES',
+            reason: searchResult.reason || 'SEARCH_VERIFIED_ZERO_DUPLICATES',
+            resolvedVia: resolvedRung,
+            executedRungs: searchResult.executedRungs || [],
             bookCount: searchResult.books.length,
             bookId: topBook.id,
             bookTitle: topBook.title,
             rawDuplicatesFiltered: rawDupes,
             postDedupDuplicatesCount: postDupes
           });
-          console.log(`  [${entryKey}] -> SUCCESS (${searchResult.books.length} books, Raw Dupes Filtered: ${rawDupes}, Post-Dedup Dupes: ${postDupes})`);
+          console.log(`  [${entryKey}] -> SUCCESS (${searchResult.books.length} books, ResolvedVia: ${resolvedRung}, Raw Dupes: ${rawDupes}, Post Dupes: ${postDupes})`);
         } catch (err) {
           summary.networkFailures++;
           matrixResults.push({
@@ -111,6 +122,7 @@ async function runCoverageAudit() {
             subject: subjObj.name,
             status: 'NETWORK_ERROR',
             reason: err.message,
+            resolvedVia: 'none',
             bookCount: 0,
             bookId: null,
             pdfValid: false,
@@ -145,14 +157,17 @@ async function runCoverageAudit() {
   console.log(`Total Combinations Tested  : ${summary.totalCombinationsTested}`);
   console.log(`Successful Resolutions     : ${summary.successfulResolutions}`);
   console.log(`Genuinely Absent on DIKSHA : ${summary.genuinelyAbsentOnDiksha}`);
-  console.log(`Identity Mismatches        : ${summary.identityMismatches}`);
-  console.log(`Resource Validation Fails  : ${summary.resourceValidationFailures}`);
   console.log(`Network Failures           : ${summary.networkFailures}`);
   console.log(`Total Raw Dupes Filtered   : ${summary.totalRawDuplicatesFiltered}`);
   console.log(`Total Post-Dedup Dupes     : ${summary.totalPostDedupDuplicates} (VERIFIED ZERO)`);
-  console.log('DUPLICATES BY BOARD:');
+  console.log('\nRESOLVED VIA FALLBACK LADDER RUNGS:');
+  Object.entries(summary.resolvedViaRungCounts).forEach(([rung, count]) => {
+    console.log(`  - ${rung.padEnd(35, ' ')}: ${count} queries`);
+  });
+  console.log('\nDUPLICATES BY BOARD:');
   Object.values(summary.duplicateMetricsByBoard).forEach(m => {
-    console.log(`  - Board ${m.boardCode} (${m.boardName}): ${m.rawDuplicatesFiltered} raw dupes filtered -> ${m.postDedupDuplicates} remaining`);
+    const rungsStr = Object.entries(m.resolvedViaRungs).map(([r, c]) => `${r}:${c}`).join(', ');
+    console.log(`  - Board ${m.boardCode} (${m.boardName}): ${m.rawDuplicatesFiltered} raw dupes filtered -> ${m.postDedupDuplicates} remaining [Rungs: ${rungsStr}]`);
   });
   console.log(`Report written to          : ${REPORT_FILE}`);
   console.log('========================================================\n');

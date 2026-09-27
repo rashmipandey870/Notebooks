@@ -137,8 +137,21 @@ async function loadBooks() {
     const data = await res.json();
 
     if (data.success && data.books && data.books.length > 0) {
-      countEl.innerHTML = `Found <strong>${data.total}</strong> digital textbooks & learning materials for <strong>${currentBoard}</strong> (${currentClass})`;
+      const resolvedRung = data.resolvedVia ? `<span style="font-size:0.75rem; padding: 2px 8px; background: #e0f2fe; color: #0284c7; border-radius: 12px; margin-left: 8px; font-weight:600;"><i class="fa-solid fa-layer-group"></i> ${escapeHtml(data.resolvedVia)}</span>` : '';
+      countEl.innerHTML = `Found <strong>${data.total}</strong> digital textbooks for <strong>${currentBoard}</strong> (${currentClass}) ${resolvedRung}`;
       renderBooks(data.books);
+    } else if (data.reason === 'NO_CONTENT_PUBLISHED') {
+      countEl.innerHTML = `No digital textbooks published upstream for <strong>${currentBoard}</strong> (${currentClass}).`;
+      grid.innerHTML = `
+        <div style="grid-column: 1/-1; text-align: center; padding: 3rem; background: #fffdf5; border-radius: 12px; border: 1px solid #fef08a; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+          <i class="fa-solid fa-triangle-exclamation fa-3x" style="color: #eab308;"></i>
+          <h3 style="margin-top: 1rem; color: #854d0e; font-size: 1.25rem; font-weight: 700;">No Upstream Digital Textbooks Published</h3>
+          <p style="color: #713f12; max-width: 520px; margin: 0.5rem auto 1.25rem auto; line-height: 1.5;">${escapeHtml(data.message || 'The state board has not yet published digital textbooks on the DIKSHA portal for this class level.')}</p>
+          <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; padding: 5px 12px; background: #fef9c3; color: #a16207; border-radius: 20px; font-weight: 600; border: 1px solid #fef08a;">
+            <i class="fa-solid fa-database"></i> Verified Upstream Gap (NO_CONTENT_PUBLISHED)
+          </span>
+        </div>
+      `;
     } else {
       countEl.innerHTML = `No books found for ${currentBoard} (${currentClass}).`;
       grid.innerHTML = `
