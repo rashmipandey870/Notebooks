@@ -291,8 +291,14 @@
         </div>
 
         <!-- Center PDF.js Canvas Viewport -->
-        <div class="diksha-player-viewport" id="pdf-viewport-container">
+        <div class="diksha-player-viewport" id="pdf-viewport-container" style="position: relative;">
           
+          <!-- Fallback Notice Toast -->
+          <div id="pdf-notice-toast" style="display: none; position: absolute; top: 12px; right: 24px; z-index: 120; background: #fffbebf5; border: 1px solid #fde047; color: #854d0e; padding: 10px 18px; border-radius: 8px; font-size: 0.85rem; font-weight: 700; box-shadow: 0 4px 12px rgba(0,0,0,0.15); align-items: center; gap: 8px;">
+            <i class="fa-solid fa-circle-info" style="color: #eab308; font-size: 1.1rem;"></i>
+            <span id="pdf-notice-text">Exact page range not available — opening full textbook</span>
+          </div>
+
           <!-- Loading Spinner -->
           <div id="pdf-loading-spinner" class="pdf-state-container">
             <i class="fa-solid fa-circle-notch fa-spin fa-3x" style="color: #3b82f6;"></i>

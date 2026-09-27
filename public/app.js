@@ -682,6 +682,18 @@ function retryPdfLoad() {
   loadPdfDocument(currentPdfProxyUrl);
 }
 
+function showPdfNotice(message) {
+  const toast = document.getElementById('pdf-notice-toast');
+  const text = document.getElementById('pdf-notice-text');
+  if (toast && text) {
+    text.textContent = message;
+    toast.style.display = 'flex';
+    setTimeout(() => {
+      toast.style.display = 'none';
+    }, 4500);
+  }
+}
+
 // Step 12 & Step 22: Book-specific Chapter Click Handler
 function handleChapterClick(chapterId) {
   const chapter = currentBookChapters.find(c => c.identifier === chapterId);
@@ -696,6 +708,14 @@ function handleChapterClick(chapterId) {
   currentChapterId = chapterId;
   const targetPage = parseInt(chapter.pdfStartPage || chapter.startPage, 10) || 1;
   const proxyUrl = chapter.proxyPdfUrl;
+
+  const isFallbackNoPage = chapter.isFallbackToBookPdf && !chapter.startPage && !chapter.pdfStartPage;
+  if (isFallbackNoPage) {
+    showPdfNotice('Exact page range not available — opening full textbook');
+  } else {
+    const toast = document.getElementById('pdf-notice-toast');
+    if (toast) toast.style.display = 'none';
+  }
 
   // CASE A: If chapter has its own distinct PDF proxy URL, load that chapter PDF
   if (proxyUrl && proxyUrl !== currentPdfProxyUrl && proxyUrl !== 'null') {

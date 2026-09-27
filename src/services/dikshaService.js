@@ -401,9 +401,22 @@ function normalizeDikshaItem(item) {
 /**
  * Helper to check if node title is a generic non-chapter label or media folder
  */
-function isIgnoredNodeTitle(name, mimeType, primaryCategory) {
+/**
+ * Helper to check if node title is a generic non-chapter label, media folder, or unit container
+ */
+function isIgnoredNodeTitle(name, mimeType, primaryCategory, contentType, hasChildren = false) {
   if (!name || typeof name !== 'string') return true;
   const clean = name.trim().toLowerCase();
+
+  // If node has children and has a multi-chapter unit container pattern or category, ignore container header
+  if (hasChildren && (
+    clean.match(/^\d+[\s\-\:]+[a-z].*\s{2,}[a-z]/) ||
+    clean.match(/^\d+[\s\-\:]+[a-z].*\s+-\s+[a-z]/) ||
+    (primaryCategory && (primaryCategory.toLowerCase() === 'textbook unit' || primaryCategory.toLowerCase() === 'unit')) ||
+    (contentType && contentType.toLowerCase() === 'textbookunit')
+  )) {
+    return true;
+  }
 
   const ignoredExactOrContains = [
     'book',
@@ -420,8 +433,13 @@ function isIgnoredNodeTitle(name, mimeType, primaryCategory) {
     'question bank',
     'practice content',
     'learning material',
+    'learning resources',
+    'learning resource',
     'course material',
     'study material',
+    'explanation content',
+    'explanation resource',
+    'explanation material',
     'content',
     'resources',
     'materials',
@@ -438,9 +456,20 @@ function isIgnoredNodeTitle(name, mimeType, primaryCategory) {
     'assessment',
     'quiz',
     'worksheet',
+    'multiple choice question',
+    'multiple choice questions',
+    'mcq',
+    'mcqs',
+    'mcq practice',
+    'objective question',
+    'objective questions',
+    'fill in the blank',
+    'fill in the blanks',
+    'practice question set',
     'practice question',
     'practice set',
-    'explanation content',
+    'practice items',
+    'practice item',
     'teacher resource',
     'short answer',
     'short answer questions',
@@ -451,17 +480,55 @@ function isIgnoredNodeTitle(name, mimeType, primaryCategory) {
     'activity',
     'graphic novel',
     'comparative study',
-    'master lesson plan'
+    'master lesson plan',
+    'reading material',
+    'concept map',
+    'mind map',
+    'ppt',
+    'powerpoint',
+    'reporting'
   ];
 
   if (ignoredExactOrContains.some(term => clean === term || clean.startsWith(term))) return true;
-  if (clean.includes('short answer') || clean.includes('long answer') || clean.includes('lesson plan') || clean.includes('graphic novel') || clean.includes('comparative study')) return true;
+  
+  if (
+    clean.includes('multiple choice') ||
+    clean.includes('mcq') ||
+    clean.includes('objective question') ||
+    clean.includes('fill in the blank') ||
+    clean.includes('short answer') ||
+    clean.includes('long answer') ||
+    clean.includes('lesson plan') ||
+    clean.includes('graphic novel') ||
+    clean.includes('comparative study') ||
+    clean.includes('learning resource') ||
+    clean.includes('practice question') ||
+    clean.includes('explanation content') ||
+    clean.includes('reading material') ||
+    clean.includes('concept map') ||
+    clean.includes('mind map') ||
+    clean.endsWith('ppt') ||
+    clean.includes(' ppt') ||
+    clean.includes('practice item') ||
+    clean.includes('reporting(')
+  ) {
+    return true;
+  }
 
   const mime = (mimeType || '').toLowerCase();
   if (mime.includes('video') || mime.includes('audio') || mime.includes('image')) return true;
 
   const cat = (primaryCategory || '').toLowerCase();
-  if (cat.includes('video') || cat.includes('audio') || cat.includes('teacher')) return true;
+  if (
+    cat.includes('video') ||
+    cat.includes('audio') ||
+    cat.includes('teacher') ||
+    cat.includes('practice') ||
+    cat.includes('explanation') ||
+    cat.includes('assessment')
+  ) {
+    return true;
+  }
 
   return false;
 }
@@ -473,9 +540,15 @@ function normalizeChapterTitleKey(title) {
   if (!title || typeof title !== 'string') return '';
   let clean = title.trim().toLowerCase();
 
-  // Strip chapter prefixes like "1- ", "chapter 1- ", "chapter 1: ", "lesson 1: ", "ch 1 ", "unit 1: ", "1. "
-  clean = clean.replace(/^(?:chapter|lesson|unit|ch|l)?\s*\d+[\.\s\:\-]+\s*/gi, '');
+  // Strip chapter prefixes like "1- ", "chapter 1- ", "chapter 1: ", "lesson 1: ", "ch 1 ", "unit 1: ", "1. ", "poem-6-"
+  clean = clean.replace(/^(?:chapter|lesson|unit|ch|l|poem)?\s*\d+[\.\s\:\-]+\s*/gi, '');
+
+  // Strip supplementary resource suffix noise
+  clean = clean.replace(/\b(reading material|explanation content|explanation resource|concept map|mind map|ppt|powerpoint|activity|practice|lesson plan|rm)\b/gi, '');
   
+  // Strip common stopwords
+  clean = clean.replace(/\b(a|an|the|of|to|in|on|at|for|from|by|with|and|or)\b/gi, '');
+
   // Strip non-alphanumeric characters except unicode scripts
   clean = clean.replace(/[^a-z0-9\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F]/g, '');
 
@@ -488,9 +561,9 @@ function normalizeChapterTitleKey(title) {
 
 /**
  * Recursively parse multi-level DIKSHA hierarchy nodes (Levels 1 to 4)
- * Strictly filters out non-chapter media labels ("Book", "MP4 VIDEO") and deduplicates titles
+ * Deduplicates by normalized title key (merging child/leaf info into parent TOC row)
  */
-function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1 }, grade = 'Class 10', subject = 'General', seenNodeIds = new Set(), rootBookPdfUrl = null) {
+function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1 }, grade = 'Class 10', subject = 'General', seenTitleMap = new Map(), rootBookPdfUrl = null) {
   let chapters = [];
   if (!Array.isArray(nodes)) return chapters;
 
@@ -501,56 +574,71 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
     const title = node.name ? node.name.trim() : '';
     const foundPdf = findPdfUrlInNode(node);
 
-    // STRICT ISOLATION: A chapter never inherits a sibling chapter's PDF.
-    // If node has no PDF of its own, it falls back ONLY to the book-level root PDF.
     const hasOwnPdf = !!foundPdf;
     const chapterPdfUrl = hasOwnPdf ? foundPdf : rootPdf;
     const isFallbackToBookPdf = !hasOwnPdf;
 
-    const isIgnored = isIgnoredNodeTitle(title, node.mimeType, node.primaryCategory);
+    const childNodes = node.children || node.childNodes || node.contents || node.linkedContent || node.units;
+    const hasChildren = Array.isArray(childNodes) && childNodes.length > 0;
+
+    const isIgnored = isIgnoredNodeTitle(title, node.mimeType, node.primaryCategory, node.contentType, hasChildren);
     const titleKey = normalizeChapterTitleKey(title);
 
-    // HARD IDENTITY DEDUP: Prioritize node.identifier, fallback to title + pdfUrl combo
-    const nodeId = node.identifier;
-    const dedupKey = nodeId ? `node:${nodeId}` : (titleKey ? `title:${titleKey}_${chapterPdfUrl || ''}` : null);
-    const isDuplicate = dedupKey && seenNodeIds.has(dedupKey);
+    const printedStart = (node.startPage && !isNaN(parseInt(node.startPage, 10))) ? parseInt(node.startPage, 10) : null;
+    const printedEnd = (node.endPage && !isNaN(parseInt(node.endPage, 10))) ? parseInt(node.endPage, 10) : null;
 
-    if (title && !isIgnored && !isDuplicate) {
-      if (dedupKey) seenNodeIds.add(dedupKey);
-      const printedStart = (node.startPage && !isNaN(parseInt(node.startPage, 10))) ? parseInt(node.startPage, 10) : null;
-      const printedEnd = (node.endPage && !isNaN(parseInt(node.endPage, 10))) ? parseInt(node.endPage, 10) : null;
+    if (title && !isIgnored && titleKey) {
+      if (seenTitleMap.has(titleKey)) {
+        // FORWARD MERGE: Update already-pushed chapter with better child/leaf node data if available
+        const existingCh = seenTitleMap.get(titleKey);
 
-      const currentChNum = state.chapterNumber;
-      state.chapterNumber++;
+        if (existingCh.isFallbackToBookPdf && hasOwnPdf) {
+          existingCh.pdfUrl = foundPdf;
+          existingCh.proxyPdfUrl = `/api/v1/pdf/proxy?url=${encodeURIComponent(foundPdf)}`;
+          existingCh.downloadUrl = `/api/v1/download?url=${encodeURIComponent(foundPdf)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${existingCh.chapterNumber}`)}`;
+          existingCh.isFallbackToBookPdf = false;
+        }
 
-      const proxyPdfUrl = chapterPdfUrl ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chapterPdfUrl)}` : null;
-      const downloadUrl = chapterPdfUrl ? `/api/v1/download?url=${encodeURIComponent(chapterPdfUrl)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${currentChNum}`)}` : null;
+        if (existingCh.startPage === null && printedStart !== null) {
+          existingCh.startPage = printedStart;
+          existingCh.printedStartPage = printedStart;
+          existingCh.endPage = printedEnd;
+          existingCh.printedEndPage = printedEnd;
+        }
+      } else {
+        // PUSH NEW LOGICAL CHAPTER
+        const currentChNum = state.chapterNumber;
+        state.chapterNumber++;
 
-      const chapterObj = {
-        chapterNumber: currentChNum,
-        identifier: node.identifier || `ch_${currentChNum}`,
-        title: title,
-        level: Math.min(Math.max(level, 1), 4),
-        startPage: printedStart,
-        endPage: printedEnd,
-        printedStartPage: printedStart,
-        printedEndPage: printedEnd,
-        pdfStartPage: null,
-        pdfEndPage: null,
-        pdfUrl: chapterPdfUrl,
-        proxyPdfUrl: proxyPdfUrl,
-        downloadUrl: downloadUrl,
-        isFallbackToBookPdf: isFallbackToBookPdf
-      };
+        const proxyPdfUrl = chapterPdfUrl ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chapterPdfUrl)}` : null;
+        const downloadUrl = chapterPdfUrl ? `/api/v1/download?url=${encodeURIComponent(chapterPdfUrl)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${currentChNum}`)}` : null;
 
-      chapters.push(chapterObj);
+        const chapterObj = {
+          chapterNumber: currentChNum,
+          identifier: node.identifier || `ch_${currentChNum}`,
+          title: title,
+          level: Math.min(Math.max(level, 1), 4),
+          startPage: printedStart,
+          endPage: printedEnd,
+          printedStartPage: printedStart,
+          printedEndPage: printedEnd,
+          pdfStartPage: null,
+          pdfEndPage: null,
+          pdfUrl: chapterPdfUrl,
+          proxyPdfUrl: proxyPdfUrl,
+          downloadUrl: downloadUrl,
+          isFallbackToBookPdf: isFallbackToBookPdf
+        };
+
+        chapters.push(chapterObj);
+        seenTitleMap.set(titleKey, chapterObj);
+      }
     }
 
-    const childNodes = node.children || node.childNodes || node.contents || node.linkedContent || node.units;
     if (Array.isArray(childNodes) && childNodes.length > 0) {
       const nextLevel = isIgnored ? level : level + 1;
       const nextParentPdf = hasOwnPdf ? foundPdf : rootPdf;
-      const childChapters = parseDikshaHierarchyNodes(childNodes, nextLevel, nextParentPdf, state, grade, subject, seenNodeIds, rootPdf);
+      const childChapters = parseDikshaHierarchyNodes(childNodes, nextLevel, nextParentPdf, state, grade, subject, seenTitleMap, rootPdf);
       chapters = chapters.concat(childChapters);
     }
   }
@@ -851,7 +939,7 @@ async function resolveBookReadingResource(bookId) {
     state,
     grade,
     subject,
-    new Set(),
+    new Map(),
     rootBookPdfUrl
   );
 
