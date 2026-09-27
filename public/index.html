@@ -42,9 +42,22 @@
         <p>Access official NCERT & State Board digital textbooks, chapter revision notes, key formulas, and practice sets.</p>
 
         <!-- Board Selector Badges -->
-        <div class="board-selector-title"><i class="fa-solid fa-landmark"></i> Select Board:</div>
+        <div class="board-selector-title"><i class="fa-solid fa-landmark"></i> SELECT BOARD:</div>
         <div class="board-badges" id="board-badges-container">
-          <!-- Rendered dynamically -->
+          <button class="board-badge active" style="background-color: #2563eb; border-color: #2563eb; color: #fff;" onclick="selectBoard('CBSE', '#2563eb')">CBSE / NCERT</button>
+          <button class="board-badge" onclick="selectBoard('UP', '#dc2626')">UP Board</button>
+          <button class="board-badge" onclick="selectBoard('MP', '#059669')">MP Board</button>
+          <button class="board-badge" onclick="selectBoard('MH', '#7c3aed')">Maharashtra Board</button>
+          <button class="board-badge" onclick="selectBoard('BIHAR', '#d97706')">Bihar Board</button>
+          <button class="board-badge" onclick="selectBoard('RJ', '#ea580c')">Rajasthan Board</button>
+          <button class="board-badge" onclick="selectBoard('TN', '#0891b2')">Tamil Nadu Board</button>
+          <button class="board-badge" onclick="selectBoard('KA', '#4f46e5')">Karnataka Board</button>
+          <button class="board-badge" onclick="selectBoard('WB', '#be123c')">West Bengal Board</button>
+          <button class="board-badge" onclick="selectBoard('GJ', '#15803d')">Gujarat Board</button>
+          <button class="board-badge" onclick="selectBoard('KL', '#0369a1')">Kerala Board</button>
+          <button class="board-badge" onclick="selectBoard('AP', '#854d0e')">AP Board</button>
+          <button class="board-badge" onclick="selectBoard('TS', '#6b21a8')">Telangana Board</button>
+          <button class="board-badge" onclick="selectBoard('PB', '#991b1b')">Punjab Board</button>
         </div>
 
         <!-- Class Selector Pills -->

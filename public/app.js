@@ -8,7 +8,22 @@ let currentClass = 'Class 10';
 let currentSubject = '';
 let currentMedium = '';
 let currentSearch = '';
-let boardsList = [];
+let boardsList = [
+  { code: 'CBSE', shortName: 'CBSE / NCERT', badgeColor: '#2563eb' },
+  { code: 'UP', shortName: 'UP Board', badgeColor: '#dc2626' },
+  { code: 'MP', shortName: 'MP Board', badgeColor: '#059669' },
+  { code: 'MH', shortName: 'Maharashtra Board', badgeColor: '#7c3aed' },
+  { code: 'BIHAR', shortName: 'Bihar Board', badgeColor: '#d97706' },
+  { code: 'RJ', shortName: 'Rajasthan Board', badgeColor: '#ea580c' },
+  { code: 'TN', shortName: 'Tamil Nadu Board', badgeColor: '#0891b2' },
+  { code: 'KA', shortName: 'Karnataka Board', badgeColor: '#4f46e5' },
+  { code: 'WB', shortName: 'West Bengal Board', badgeColor: '#be123c' },
+  { code: 'GJ', shortName: 'Gujarat Board', badgeColor: '#15803d' },
+  { code: 'KL', shortName: 'Kerala Board', badgeColor: '#0369a1' },
+  { code: 'AP', shortName: 'AP Board', badgeColor: '#854d0e' },
+  { code: 'TS', shortName: 'Telangana Board', badgeColor: '#6b21a8' },
+  { code: 'PB', shortName: 'Punjab Board', badgeColor: '#991b1b' }
+];
 
 // PDF.js State Management
 let pdfDoc = null;
@@ -22,7 +37,8 @@ let currentPdfTitle = '';
 
 // Initialize Dashboard
 document.addEventListener('DOMContentLoaded', async () => {
-  await fetchBoards();
+  renderBoardBadges();
+  fetchBoards();
   await loadBooks();
   loadSavedNotes();
 });
