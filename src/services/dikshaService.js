@@ -561,17 +561,26 @@ function verifyCandidateIdentity(cand, requestedBook) {
     }
   }
 
-  const extractGradeNum = (gStr) => {
+  const extractGradeNumFromMetadata = (gStr) => {
     if (!gStr) return null;
-    const match = String(gStr).match(/\b(?:class|grade|cl|std)?\s*(\d{1,2}|viii|ix|x|xi|xii)\b/i);
+    const match = String(gStr).match(/\b(?:class|grade|cl|std|standard)?\s*(\d{1,2}|viii|ix|x|xi|xii)\b/i);
     if (!match) return null;
     const val = match[1].toUpperCase();
     const romanMap = { 'VIII': '8', 'IX': '9', 'X': '10', 'XI': '11', 'XII': '12' };
     return romanMap[val] || val;
   };
 
-  const reqGradeNum = reqGrades.map(extractGradeNum).find(Boolean);
-  const candGradeNum = (candGrades.map(extractGradeNum).find(Boolean)) || extractGradeNum(cand.title || cand.nodeTitle);
+  const extractGradeNumFromTitle = (tStr) => {
+    if (!tStr) return null;
+    const match = String(tStr).match(/\b(?:class|grade|cl|std|standard)\s*(\d{1,2}|viii|ix|x|xi|xii)\b/i);
+    if (!match) return null;
+    const val = match[1].toUpperCase();
+    const romanMap = { 'VIII': '8', 'IX': '9', 'X': '10', 'XI': '11', 'XII': '12' };
+    return romanMap[val] || val;
+  };
+
+  const reqGradeNum = reqGrades.map(extractGradeNumFromMetadata).find(Boolean);
+  const candGradeNum = (candGrades.map(extractGradeNumFromMetadata).find(Boolean)) || extractGradeNumFromTitle(cand.title || cand.nodeTitle);
 
   let gradeMatch = true;
   let gradeReason = 'Grade matches or candidate has no contradicting grade metadata';

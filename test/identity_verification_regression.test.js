@@ -44,6 +44,20 @@ async function runRegressionTests() {
   const check3 = verifyCandidateIdentity(mismatchedGradeCand, fakeBookMath10);
   assert.strictEqual(check3.passed, false, 'Mismatched candidate grade (Class 8 vs Class 10) must be rejected');
 
+  const chapterNumberTitleCand = {
+    title: 'Chapter 10: Light',
+    nodeSubject: ['Science'],
+    nodeGradeLevel: null,
+    url: 'https://example.com/chap10.pdf'
+  };
+  const fakeBookSci8 = {
+    title: 'Class 8 Science',
+    subject: ['Science'],
+    gradeLevel: ['Class 8']
+  };
+  const checkChapterNum = verifyCandidateIdentity(chapterNumberTitleCand, fakeBookSci8);
+  assert.strictEqual(checkChapterNum.passed, true, 'Chapter numbers in title must not be misparsed as grade 10 for a Class 8 book');
+
   console.log('  -> TEST 1 PASSED: Unit matching and rejection rules verified.\n');
 
   // Test Case 2: Real DIKSHA Book ID 1 (Class 10 Mathematics)
