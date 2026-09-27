@@ -888,7 +888,7 @@ async function resolveBookReadingResource(bookId) {
       book: normalizedBook
     };
 
-    cache.set(cacheKey, { timestamp: Date.now(), data: result });
+    cache.set(cacheKey, result);
     return result;
   } else {
     console.log(`[RESOLVER FAIL] No valid reading resource passed identity verification`);
@@ -922,7 +922,7 @@ async function resolveBookReadingResource(bookId) {
       rejectedCandidates: rejectedCandidates.concat(identityRejectedCandidates)
     };
 
-    cache.set(cacheKey, { timestamp: Date.now(), data: result });
+    cache.set(cacheKey, result);
     return result;
   }
 }
@@ -1130,7 +1130,7 @@ async function searchDikshaBooks(options = {}) {
       books: finalBooks
     };
 
-    cache.set(cacheKey, { timestamp: Date.now(), data: resultData });
+    cache.set(cacheKey, resultData);
     return resultData;
   } catch (err) {
     console.error('Error querying backend search API:', err.message);
