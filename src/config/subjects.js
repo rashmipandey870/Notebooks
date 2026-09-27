@@ -1,5 +1,5 @@
 /**
- * Class 8 to Class 12 Subject Taxonomy
+ * Class 8 to Class 12 Subject Taxonomy & Mediums
  */
 
 const CLASSES = ['Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
@@ -78,7 +78,18 @@ const MEDIUMS = [
   { code: 'Gujarati', name: 'Gujarati Medium (ગુજરાતી માધ્યમ)' },
   { code: 'Urdu', name: 'Urdu Medium (اردو ذریعہ)' },
   { code: 'Malayalam', name: 'Malayalam Medium (മലയാളം മാധ്യമം)' },
-  { code: 'Punjabi', name: 'Punjabi Medium (ਪੰਜਾਬੀ ਮਾਧਿਅਮ)' }
+  { code: 'Punjabi', name: 'Punjabi Medium (ਪੰਜਾਬੀ ਮਾਧਿਅਮ)' },
+  { code: 'Odia', name: 'Odia Medium (ଓଡ଼ିଆ ମାଧ୍ୟମ)' },
+  { code: 'Assamese', name: 'Assamese Medium (অসমীয়া মাধ্যম)' },
+  { code: 'Konkani', name: 'Konkani Medium (कोंकणी माध्यम)' },
+  { code: 'Manipuri', name: 'Manipuri Medium (ꯃꯩꯇꯩꯂꯣꯟ)' },
+  { code: 'Khasi', name: 'Khasi Medium (Ka Ktien Khasi)' },
+  { code: 'Garo', name: 'Garo Medium (A·chik kusa)' },
+  { code: 'Mizo', name: 'Mizo Medium (Mizo ṭawng)' },
+  { code: 'Santali', name: 'Santali Medium (ᱥᱟᱱᱛᱟᱲᱤ)' },
+  { code: 'Kokborok', name: 'Kokborok Medium (Kokborok)' },
+  { code: 'Bodo', name: 'Bodo Medium (बर\' माध्यम)' },
+  { code: 'Nepali', name: 'Nepali Medium (नेपाली माध्यम)' }
 ];
 
 module.exports = {

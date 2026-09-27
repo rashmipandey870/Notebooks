@@ -8,21 +8,37 @@ let currentClass = 'Class 10';
 let currentSubject = '';
 let currentMedium = '';
 let currentSearch = '';
+let selectedRegionFilter = 'ALL';
 let boardsList = [
-  { code: 'CBSE', shortName: 'CBSE / NCERT', badgeColor: '#2563eb' },
-  { code: 'UP', shortName: 'UP Board', badgeColor: '#dc2626' },
-  { code: 'MP', shortName: 'MP Board', badgeColor: '#059669' },
-  { code: 'MH', shortName: 'Maharashtra Board', badgeColor: '#7c3aed' },
-  { code: 'BIHAR', shortName: 'Bihar Board', badgeColor: '#d97706' },
-  { code: 'RJ', shortName: 'Rajasthan Board', badgeColor: '#ea580c' },
-  { code: 'TN', shortName: 'Tamil Nadu Board', badgeColor: '#0891b2' },
-  { code: 'KA', shortName: 'Karnataka Board', badgeColor: '#4f46e5' },
-  { code: 'WB', shortName: 'West Bengal Board', badgeColor: '#be123c' },
-  { code: 'GJ', shortName: 'Gujarat Board', badgeColor: '#15803d' },
-  { code: 'KL', shortName: 'Kerala Board', badgeColor: '#0369a1' },
-  { code: 'AP', shortName: 'AP Board', badgeColor: '#854d0e' },
-  { code: 'TS', shortName: 'Telangana Board', badgeColor: '#6b21a8' },
-  { code: 'PB', shortName: 'Punjab Board', badgeColor: '#991b1b' }
+  { code: 'CBSE', shortName: 'CBSE / NCERT', badgeColor: '#2563eb', region: 'National' },
+  { code: 'UP', shortName: 'UP Board', badgeColor: '#dc2626', region: 'North' },
+  { code: 'HR', shortName: 'Haryana Board', badgeColor: '#b91c1c', region: 'North' },
+  { code: 'HP', shortName: 'Himachal Board', badgeColor: '#0284c7', region: 'North' },
+  { code: 'PB', shortName: 'Punjab Board', badgeColor: '#991b1b', region: 'North' },
+  { code: 'UK', shortName: 'Uttarakhand Board', badgeColor: '#047857', region: 'North' },
+  { code: 'MP', shortName: 'MP Board', badgeColor: '#059669', region: 'Central' },
+  { code: 'CG', shortName: 'Chhattisgarh Board', badgeColor: '#16a34a', region: 'Central' },
+  { code: 'MH', shortName: 'Maharashtra Board', badgeColor: '#7c3aed', region: 'West' },
+  { code: 'GJ', shortName: 'Gujarat Board', badgeColor: '#15803d', region: 'West' },
+  { code: 'GA', shortName: 'Goa Board', badgeColor: '#d97706', region: 'West' },
+  { code: 'RJ', shortName: 'Rajasthan Board', badgeColor: '#ea580c', region: 'West' },
+  { code: 'TN', shortName: 'Tamil Nadu Board', badgeColor: '#0891b2', region: 'South' },
+  { code: 'KA', shortName: 'Karnataka Board', badgeColor: '#4f46e5', region: 'South' },
+  { code: 'KL', shortName: 'Kerala Board', badgeColor: '#0369a1', region: 'South' },
+  { code: 'AP', shortName: 'AP Board', badgeColor: '#854d0e', region: 'South' },
+  { code: 'TS', shortName: 'Telangana Board', badgeColor: '#6b21a8', region: 'South' },
+  { code: 'WB', shortName: 'West Bengal Board', badgeColor: '#be123c', region: 'East' },
+  { code: 'BIHAR', shortName: 'Bihar Board', badgeColor: '#d97706', region: 'East' },
+  { code: 'JH', shortName: 'Jharkhand Board', badgeColor: '#c026d3', region: 'East' },
+  { code: 'OD', shortName: 'Odisha Board', badgeColor: '#059669', region: 'East' },
+  { code: 'AS', shortName: 'Assam Board', badgeColor: '#4338ca', region: 'Northeast' },
+  { code: 'AR', shortName: 'Arunachal Board', badgeColor: '#0e7490', region: 'Northeast' },
+  { code: 'MN', shortName: 'Manipur Board', badgeColor: '#6d28d9', region: 'Northeast' },
+  { code: 'ML', shortName: 'Meghalaya Board', badgeColor: '#0f766e', region: 'Northeast' },
+  { code: 'MZ', shortName: 'Mizoram Board', badgeColor: '#a21caf', region: 'Northeast' },
+  { code: 'NL', shortName: 'Nagaland Board', badgeColor: '#be185d', region: 'Northeast' },
+  { code: 'SK', shortName: 'Sikkim Board', badgeColor: '#b45309', region: 'Northeast' },
+  { code: 'TR', shortName: 'Tripura Board', badgeColor: '#1d4ed8', region: 'Northeast' }
 ];
 
 // PDF.js State Management
@@ -63,7 +79,7 @@ async function fetchBoards() {
   try {
     const res = await fetch('/api/v1/boards');
     const data = await res.json();
-    if (data.success) {
+    if (data.success && Array.isArray(data.boards) && data.boards.length > 0) {
       boardsList = data.boards;
       renderBoardBadges();
     }
@@ -72,18 +88,47 @@ async function fetchBoards() {
   }
 }
 
-// Render Board Badges
+// Filter Boards by Region
+function setRegionFilter(region) {
+  selectedRegionFilter = region;
+  renderBoardBadges();
+}
+
+// Render Board Badges with Region Navigation
 function renderBoardBadges() {
   const container = document.getElementById('board-badges-container');
   if (!container) return;
 
-  container.innerHTML = boardsList.map(b => `
-    <button class="board-badge ${b.code === currentBoard ? 'active' : ''}" 
-            style="${b.code === currentBoard ? `background-color: ${b.badgeColor}; border-color: ${b.badgeColor}; color: #fff;` : ''}"
-            onclick="selectBoard('${b.code}', '${b.badgeColor}')">
-      ${b.shortName}
-    </button>
-  `).join('');
+  const regions = ['ALL', 'National', 'North', 'South', 'East', 'West', 'Central', 'Northeast'];
+  const regionTabsHtml = `
+    <div class="region-tabs" style="display: flex; gap: 6px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+      ${regions.map(r => `
+        <button class="region-tab ${selectedRegionFilter === r ? 'active' : ''}"
+                style="padding: 4px 10px; font-size: 0.75rem; border-radius: 12px; border: 1px solid ${selectedRegionFilter === r ? '#3b82f6' : 'rgba(255,255,255,0.2)'}; background: ${selectedRegionFilter === r ? '#2563eb' : 'rgba(255,255,255,0.05)'}; color: #fff; cursor: pointer; font-weight: 600;"
+                onclick="setRegionFilter('${r}')">
+          ${r === 'ALL' ? 'All (28 States)' : r}
+        </button>
+      `).join('')}
+    </div>
+  `;
+
+  const filteredBoards = selectedRegionFilter === 'ALL' 
+    ? boardsList 
+    : boardsList.filter(b => b.region === selectedRegionFilter);
+
+  const badgesHtml = `
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 180px; overflow-y: auto; padding-right: 4px;">
+      ${filteredBoards.map(b => `
+        <button class="board-badge ${b.code === currentBoard ? 'active' : ''}" 
+                style="${b.code === currentBoard ? `background-color: ${b.badgeColor || '#2563eb'}; border-color: ${b.badgeColor || '#2563eb'}; color: #fff; font-weight:700;` : ''}"
+                onclick="selectBoard('${b.code}', '${b.badgeColor || '#2563eb'}')">
+          ${b.shortName}
+        </button>
+      `).join('')}
+    </div>
+  `;
+
+  container.innerHTML = regionTabsHtml + badgesHtml;
 }
 
 // Select Board

@@ -8,7 +8,7 @@ const REPORT_FILE = path.join(__dirname, '..', 'data', 'coverage_report.json');
 
 async function runCoverageAudit() {
   console.log('========================================================');
-  console.log('STARTING DIKSHA 14 BOARDS x CLASSES 8-12 COVERAGE AUDIT');
+  console.log('STARTING DIKSHA 28 STATE BOARDS + CBSE COVERAGE AUDIT');
   console.log('========================================================\n');
 
   const startTime = Date.now();
