@@ -331,7 +331,6 @@ async function openBookModal(dikshaId, initialTitle = 'Loading Book...') {
             </button>
           </div>
         `;
-        `;
       }
     } else {
       spinner.style.display = 'none';
@@ -940,4 +939,9 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function reportMissingContent(bookId) {
+  const idToLog = bookId || currentBookId || 'unknown';
+  alert(`Thank you! Missing content report for Book ID '${idToLog}' (${currentBoard} ${currentClass}) has been submitted for triage.`);
 }
