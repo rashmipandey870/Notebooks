@@ -559,6 +559,73 @@ function normalizeChapterTitleKey(title) {
 }
 
 /**
+ * Helper to check if text contains native regional script characters
+ */
+function hasNativeScript(text) {
+  if (!text || typeof text !== 'string') return false;
+  return /[\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F]/.test(text);
+}
+
+/**
+ * Extracts native script title segment if present in title (e.g. "मेरा बचपन" from "मेरा बचपन mera bachapan 10")
+ */
+function extractNativeScriptTitle(title) {
+  if (!title || typeof title !== 'string') return null;
+  if (!hasNativeScript(title)) return null;
+
+  const regex = /[\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\s\:\,\.\-\–\—\(\)]+/g;
+  const matches = title.match(regex);
+  if (!matches) return null;
+
+  let best = '';
+  for (const m of matches) {
+    const clean = m.trim().replace(/^[\:\,\.\-\–\—\(\)]+|[\:\,\.\-\–\—\(\)]+$/g, '').trim();
+    if (hasNativeScript(clean) && clean.length > best.length) {
+      best = clean;
+    }
+  }
+  return best.length >= 2 ? best : null;
+}
+
+/**
+ * Strips numeric chapter prefixes, noise, and transliteration suffixes from chapter display titles
+ */
+function cleanChapterTitle(title) {
+  if (!title || typeof title !== 'string') return '';
+  const native = extractNativeScriptTitle(title);
+  if (native) return native;
+
+  let clean = title.trim();
+  clean = clean.replace(/^(?:chapter|lesson|unit|ch|l|poem)?\s*\d+[\.\s\:\-]+\s*/gi, '');
+  clean = clean.replace(/\s*[\(\[\{](?:row|splitpdf|\d+)[\)\]\}]\s*/gi, '');
+  clean = clean.replace(/\s+\d+$/g, '');
+  return clean.trim() || title.trim();
+}
+
+/**
+ * Builds consonant skeleton key for cross-script transliteration deduplication (e.g. "Mera bachpan" -> "mrbchpn")
+ */
+function buildConsonantSkeletonKey(title) {
+  if (!title || typeof title !== 'string') return '';
+
+  let clean = title.toLowerCase().trim();
+  clean = clean.replace(/^(?:chapter|lesson|unit|ch|l|poem)?\s*\d+[\.\s\:\-]+\s*/gi, '');
+  clean = clean.replace(/\s*[\(\[\{](?:row|splitpdf|\d+)[\)\]\}]\s*/gi, '');
+  clean = clean.replace(/\s+\d+$/g, '');
+
+  if (hasNativeScript(clean)) {
+    clean = clean.replace(/[\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F]/g, ' ');
+  }
+
+  clean = clean.replace(/\b(a|an|the|of|to|in|on|at|for|from|by|with|and|or)\b/g, ' ');
+  clean = clean.replace(/[^a-z0-9\s]/g, ' ');
+  clean = clean.replace(/[aeiou]/g, '');
+  clean = clean.replace(/\s+/g, '');
+
+  return clean;
+}
+
+/**
  * Helper to check if node title script mismatches requested medium (e.g. Tamil script titles in English medium book)
  */
 function hasScriptMismatch(title, targetMedium = 'English') {
@@ -584,11 +651,20 @@ function hasScriptMismatch(title, targetMedium = 'English') {
 
 /**
  * Recursively parse multi-level DIKSHA hierarchy nodes (Levels 1 to 4)
- * Deduplicates by normalized title key (merging child/leaf info into parent TOC row)
+ * Deduplicates by normalized title key, consonant skeleton key, artifact URL, and page ranges.
+ * Elevates native script display titles over Roman transliteration variants.
  */
 function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1 }, grade = 'Class 10', subject = 'General', seenTitleMap = new Map(), rootBookPdfUrl = null, targetMedium = 'English') {
   let chapters = [];
   if (!Array.isArray(nodes)) return chapters;
+
+  if (!seenTitleMap._skeletonMap) seenTitleMap._skeletonMap = new Map();
+  if (!seenTitleMap._pdfMap) seenTitleMap._pdfMap = new Map();
+  if (!seenTitleMap._rangeMap) seenTitleMap._rangeMap = new Map();
+
+  const seenSkeletonMap = seenTitleMap._skeletonMap;
+  const seenPdfMap = seenTitleMap._pdfMap;
+  const seenPageRangeMap = seenTitleMap._rangeMap;
 
   const rootPdf = rootBookPdfUrl || parentPdfUrl;
 
@@ -606,16 +682,40 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
 
     const scriptMismatch = hasScriptMismatch(title, targetMedium);
     const isIgnored = scriptMismatch || isIgnoredNodeTitle(title, node.mimeType, node.primaryCategory, node.contentType, hasChildren);
-    const titleKey = normalizeChapterTitleKey(title);
 
+    const titleKey = normalizeChapterTitleKey(title);
+    const skeletonKey = buildConsonantSkeletonKey(title);
     const printedStart = (node.startPage && !isNaN(parseInt(node.startPage, 10))) ? parseInt(node.startPage, 10) : null;
     const printedEnd = (node.endPage && !isNaN(parseInt(node.endPage, 10))) ? parseInt(node.endPage, 10) : null;
 
-    if (title && !isIgnored && titleKey) {
-      if (seenTitleMap.has(titleKey)) {
-        // FORWARD MERGE: Update already-pushed chapter with better child/leaf node data if available
-        const existingCh = seenTitleMap.get(titleKey);
+    if (title && !isIgnored && (titleKey || skeletonKey)) {
+      let existingCh = null;
 
+      // 1. Exact normalized title key match
+      if (titleKey && seenTitleMap.has(titleKey)) {
+        existingCh = seenTitleMap.get(titleKey);
+      }
+
+      // 2. Consonant skeleton match (for transliterated/typo variants)
+      if (!existingCh && skeletonKey && skeletonKey.length >= 3 && seenSkeletonMap.has(skeletonKey)) {
+        existingCh = seenSkeletonMap.get(skeletonKey);
+      }
+
+      // 3. Exact chapter-specific PDF URL match (when node has own non-root PDF)
+      if (!existingCh && hasOwnPdf && foundPdf && foundPdf !== rootPdf && seenPdfMap.has(foundPdf)) {
+        existingCh = seenPdfMap.get(foundPdf);
+      }
+
+      // 4. Exact page range + PDF URL match
+      if (!existingCh && printedStart !== null && printedEnd !== null && chapterPdfUrl) {
+        const rangeKey = `${chapterPdfUrl}:${printedStart}-${printedEnd}`;
+        if (seenPageRangeMap.has(rangeKey)) {
+          existingCh = seenPageRangeMap.get(rangeKey);
+        }
+      }
+
+      if (existingCh) {
+        // FORWARD MERGE: Update existing chapter with better PDF, pages, or native script title
         if (existingCh.isFallbackToBookPdf && hasOwnPdf) {
           existingCh.pdfUrl = foundPdf;
           existingCh.proxyPdfUrl = `/api/v1/pdf/proxy?url=${encodeURIComponent(foundPdf)}`;
@@ -629,18 +729,34 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
           existingCh.endPage = printedEnd;
           existingCh.printedEndPage = printedEnd;
         }
+
+        // Native script title elevation
+        const nativeTitle = extractNativeScriptTitle(title);
+        const existingHasNative = hasNativeScript(existingCh.title);
+        const incomingHasNative = hasNativeScript(title);
+
+        if (!existingHasNative && incomingHasNative && nativeTitle) {
+          existingCh.title = nativeTitle;
+        } else if (!existingHasNative && !incomingHasNative) {
+          const cleanIncoming = cleanChapterTitle(title);
+          const cleanExisting = cleanChapterTitle(existingCh.title);
+          if (cleanIncoming && cleanIncoming.length < cleanExisting.length && cleanIncoming.length >= 3) {
+            existingCh.title = cleanIncoming;
+          }
+        }
       } else {
         // PUSH NEW LOGICAL CHAPTER
         const currentChNum = state.chapterNumber;
         state.chapterNumber++;
 
+        const cleanDisplayTitle = cleanChapterTitle(title);
         const proxyPdfUrl = chapterPdfUrl ? `/api/v1/pdf/proxy?url=${encodeURIComponent(chapterPdfUrl)}` : null;
         const downloadUrl = chapterPdfUrl ? `/api/v1/download?url=${encodeURIComponent(chapterPdfUrl)}&filename=${encodeURIComponent(`${grade}_${subject}_Ch${currentChNum}`)}` : null;
 
         const chapterObj = {
           chapterNumber: currentChNum,
           identifier: node.identifier || `ch_${currentChNum}`,
-          title: title,
+          title: cleanDisplayTitle,
           level: Math.min(Math.max(level, 1), 4),
           startPage: printedStart,
           endPage: printedEnd,
@@ -655,7 +771,14 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
         };
 
         chapters.push(chapterObj);
-        seenTitleMap.set(titleKey, chapterObj);
+
+        // Register in lookup maps
+        if (titleKey) seenTitleMap.set(titleKey, chapterObj);
+        if (skeletonKey && skeletonKey.length >= 3) seenSkeletonMap.set(skeletonKey, chapterObj);
+        if (hasOwnPdf && foundPdf && foundPdf !== rootPdf) seenPdfMap.set(foundPdf, chapterObj);
+        if (printedStart !== null && printedEnd !== null && chapterPdfUrl) {
+          seenPageRangeMap.set(`${chapterPdfUrl}:${printedStart}-${printedEnd}`, chapterObj);
+        }
       }
     }
 
