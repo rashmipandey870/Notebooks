@@ -47,31 +47,40 @@ function makePostRequest(endpoint, payload) {
  * Make HTTPS GET request to DIKSHA API or direct URLs
  */
 function makeGetRequest(urlStr) {
-  return new Promise((resolve, reject) => {
-    const url = new URL(urlStr);
-    const req = https.request(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
-      }
-    }, res => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve(JSON.parse(body));
-          } else {
-            resolve({ error: true, statusCode: res.statusCode, message: body });
+  return new Promise((resolve) => {
+    try {
+      const url = new URL(urlStr);
+      const req = https.request(url, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+        },
+        timeout: 8000
+      }, res => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          try {
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              resolve(JSON.parse(body));
+            } else {
+              resolve({ error: true, statusCode: res.statusCode, message: body });
+            }
+          } catch (e) {
+            resolve({ error: true, message: e.message });
           }
-        } catch (e) {
-          reject(new Error(`Failed to parse GET response: ${e.message}`));
-        }
+        });
       });
-    });
 
-    req.on('error', err => reject(err));
-    req.end();
+      req.on('error', err => resolve({ error: true, message: err.message }));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve({ error: true, message: 'GET request timeout' });
+      });
+      req.end();
+    } catch (err) {
+      resolve({ error: true, message: err.message });
+    }
   });
 }
 
@@ -197,6 +206,9 @@ function discoverCandidatesFromNode(node, source, candidates, grade = 'Class 10'
     const filename = candidateUrl.split('/').pop().toLowerCase();
     const isOfficialTextbookPdf = filename.includes('textbook') || filename.includes('book') || filename.match(/^[a-z]{4}\d{3}\.pdf$/);
 
+    const nodeSubject = node.subject ? (Array.isArray(node.subject) ? node.subject : [node.subject]) : null;
+    const nodeGradeLevel = node.gradeLevel ? (Array.isArray(node.gradeLevel) ? node.gradeLevel : [node.gradeLevel]) : null;
+
     candidates.push({
       id: node.identifier || `cand_${candidates.length + 1}`,
       contentId: node.identifier,
@@ -206,7 +218,12 @@ function discoverCandidatesFromNode(node, source, candidates, grade = 'Class 10'
       mimeType: node.mimeType || 'application/pdf',
       url: candidateUrl,
       source: source,
-      isBookLevel: source === 'book' || source === 'hierarchy_root' || isOfficialTextbookPdf
+      isBookLevel: source === 'book' || source === 'hierarchy_root' || isOfficialTextbookPdf,
+      nodeSubject: nodeSubject,
+      nodeGradeLevel: nodeGradeLevel,
+      nodeTitle: node.name ? node.name.trim() : null,
+      subject: nodeSubject,
+      gradeLevel: nodeGradeLevel
     });
   }
 
@@ -513,6 +530,70 @@ function createNormalizedBookModel(item, chapters = []) {
 }
 
 /**
+ * Verify candidate's own metadata/identity against the requested book before selection
+ */
+function verifyCandidateIdentity(cand, requestedBook) {
+  if (!cand || !requestedBook) return { passed: false, reason: 'INVALID_PARAMETERS' };
+
+  const reqSubjects = (requestedBook.subject || []).map(s => String(s).toLowerCase().trim()).filter(Boolean);
+  const reqGrades = (requestedBook.gradeLevel || []).map(g => String(g).toLowerCase().trim()).filter(Boolean);
+
+  const candSubjectRaw = cand.nodeSubject || cand.subject;
+  const candGradeRaw = cand.nodeGradeLevel || cand.gradeLevel;
+
+  const candSubjects = candSubjectRaw ? (Array.isArray(candSubjectRaw) ? candSubjectRaw : [candSubjectRaw]).map(s => String(s).toLowerCase().trim()).filter(Boolean) : [];
+  const candGrades = candGradeRaw ? (Array.isArray(candGradeRaw) ? candGradeRaw : [candGradeRaw]).map(g => String(g).toLowerCase().trim()).filter(Boolean) : [];
+
+  const normalizeSubj = (s) => s.replace(/^(?:vocational|subject)[\:\s]+/gi, '').trim();
+  const normReqSubjs = reqSubjects.map(normalizeSubj);
+  const normCandSubjs = candSubjects.map(normalizeSubj);
+
+  let subjectMatch = true;
+  let subjectReason = 'Subject matches or candidate has no contradicting subject metadata';
+
+  if (normCandSubjs.length > 0 && normReqSubjs.length > 0) {
+    const hasOverlap = normCandSubjs.some(cs =>
+      normReqSubjs.some(rs => rs.includes(cs) || cs.includes(rs))
+    );
+    if (!hasOverlap) {
+      subjectMatch = false;
+      subjectReason = `Subject mismatch (Candidate: [${candSubjects.join(', ')}] vs Requested: [${reqSubjects.join(', ')}])`;
+    }
+  }
+
+  const extractGradeNum = (gStr) => {
+    if (!gStr) return null;
+    const match = String(gStr).match(/\b(?:class|grade|cl|std)?\s*(\d{1,2}|viii|ix|x|xi|xii)\b/i);
+    if (!match) return null;
+    const val = match[1].toUpperCase();
+    const romanMap = { 'VIII': '8', 'IX': '9', 'X': '10', 'XI': '11', 'XII': '12' };
+    return romanMap[val] || val;
+  };
+
+  const reqGradeNum = reqGrades.map(extractGradeNum).find(Boolean);
+  const candGradeNum = (candGrades.map(extractGradeNum).find(Boolean)) || extractGradeNum(cand.title || cand.nodeTitle);
+
+  let gradeMatch = true;
+  let gradeReason = 'Grade matches or candidate has no contradicting grade metadata';
+
+  if (candGradeNum && reqGradeNum && candGradeNum !== reqGradeNum) {
+    gradeMatch = false;
+    gradeReason = `Grade mismatch (Candidate Grade: ${candGradeNum} vs Requested Grade: ${reqGradeNum})`;
+  }
+
+  const passed = subjectMatch && gradeMatch;
+
+  return {
+    passed: passed,
+    candidateSubjects: candSubjects,
+    candidateGrades: candGrades,
+    requestedSubjects: reqSubjects,
+    requestedGrades: reqGrades,
+    reason: passed ? 'IDENTITY_VERIFIED' : (!subjectMatch ? subjectReason : gradeReason)
+  };
+}
+
+/**
  * Generic Global Textbook Resource Resolver
  * Resolves exact book reading resource from DIKSHA content hierarchy
  */
@@ -646,7 +727,33 @@ async function resolveBookReadingResource(bookId) {
   console.log(`VALIDATED CANDIDATES COUNT: ${validCandidates.length}`);
   console.log(`REJECTED CANDIDATES COUNT: ${rejectedCandidates.length}`);
 
-  // Step 6: Parse multi-level Table of Contents hierarchy
+  // Step 6: Identity Verification Scoring / Filtering Pass
+  const identityVerifiedCandidates = [];
+  const identityRejectedCandidates = [];
+
+  for (const cand of validCandidates) {
+    const check = verifyCandidateIdentity(cand, normalizedBook);
+    const candSubjStr = (cand.nodeSubject || cand.subject || ['Unspecified']).join(', ');
+    const candGradeStr = (cand.nodeGradeLevel || cand.gradeLevel || ['Unspecified']).join(', ');
+    const reqSubjStr = normalizedBook.subject.join(', ');
+    const reqGradeStr = normalizedBook.gradeLevel.join(', ');
+
+    console.log(`IDENTITY CHECK FOR CANDIDATE: [${cand.title}]`);
+    console.log(`  - Requested: Subject=[${reqSubjStr}], Grade=[${reqGradeStr}]`);
+    console.log(`  - Candidate: Subject=[${candSubjStr}], Grade=[${candGradeStr}]`);
+    console.log(`  - Result: ${check.passed ? 'VERIFIED PASSED' : 'REJECTED MISMATCH'} (${check.reason})`);
+
+    if (check.passed) {
+      identityVerifiedCandidates.push(cand);
+    } else {
+      identityRejectedCandidates.push({ candidate: cand, reason: check.reason });
+    }
+  }
+
+  console.log(`IDENTITY VERIFIED CANDIDATES COUNT: ${identityVerifiedCandidates.length}`);
+  console.log(`IDENTITY REJECTED CANDIDATES COUNT: ${identityRejectedCandidates.length}`);
+
+  // Step 7: Parse multi-level Table of Contents hierarchy
   const state = { chapterNumber: 1 };
   const rootNodes = (hierarchyContent && (hierarchyContent.children || hierarchyContent.childNodes || hierarchyContent.contents))
     || (rawContent.children || rawContent.childNodes || rawContent.contents)
@@ -655,17 +762,17 @@ async function resolveBookReadingResource(bookId) {
   const chapters = parseDikshaHierarchyNodes(
     rootNodes,
     1,
-    validCandidates[0] ? validCandidates[0].url : null,
+    identityVerifiedCandidates[0] ? identityVerifiedCandidates[0].url : (validCandidates[0] ? validCandidates[0].url : null),
     state,
     grade,
     subject
   );
 
-  // Step 7: Select primary resource
+  // Step 8: Select primary resource ONLY from identity verified candidates
   let selectedResource = null;
-  if (validCandidates.length > 0) {
-    const bookLevelCand = validCandidates.find(c => c.source === 'book' || c.isBookLevel);
-    selectedResource = bookLevelCand || validCandidates[0];
+  if (identityVerifiedCandidates.length > 0) {
+    const bookLevelCand = identityVerifiedCandidates.find(c => c.source === 'book' || c.isBookLevel);
+    selectedResource = bookLevelCand || identityVerifiedCandidates[0];
   }
 
   if (selectedResource) {
@@ -694,13 +801,19 @@ async function resolveBookReadingResource(bookId) {
     cache.set(cacheKey, { timestamp: Date.now(), data: result });
     return result;
   } else {
-    console.log(`[RESOLVER FAIL] No valid reading resource passed binary PDF validation`);
+    console.log(`[RESOLVER FAIL] No valid reading resource passed identity verification`);
     console.log(`========================================================\n`);
 
-    const reason = uniqueCandidates.length > 0 ? 'RESOURCE_VALIDATION_FAILED' : 'RESOURCE_NOT_FOUND';
-    const message = uniqueCandidates.length > 0
-      ? 'We could not verify the textbook resource.'
-      : 'Reading resource is not available for this textbook.';
+    let reason = 'RESOURCE_NOT_FOUND';
+    let message = 'Reading resource is not available for this textbook.';
+
+    if (validCandidates.length > 0 && identityVerifiedCandidates.length === 0) {
+      reason = 'IDENTITY_MISMATCH_ONLY';
+      message = 'The verified reading resources belong to a different subject or grade level than the requested textbook.';
+    } else if (uniqueCandidates.length > 0) {
+      reason = 'RESOURCE_VALIDATION_FAILED';
+      message = 'We could not verify the textbook resource.';
+    }
 
     normalizedBook.pdfUrl = null;
     normalizedBook.proxyPdfUrl = null;
@@ -715,8 +828,8 @@ async function resolveBookReadingResource(bookId) {
       book: normalizedBook,
       reason: reason,
       message: message,
-      rejectedCount: rejectedCandidates.length,
-      rejectedCandidates: rejectedCandidates
+      rejectedCount: rejectedCandidates.length + identityRejectedCandidates.length,
+      rejectedCandidates: rejectedCandidates.concat(identityRejectedCandidates)
     };
 
     cache.set(cacheKey, { timestamp: Date.now(), data: result });
@@ -946,6 +1059,7 @@ module.exports = {
   parseDikshaHierarchyNodes,
   validatePdfHeader,
   discoverCandidatesFromNode,
+  verifyCandidateIdentity,
   validateBookResource,
   validateBookTOC,
   createNormalizedBookModel
