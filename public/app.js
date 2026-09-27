@@ -288,15 +288,18 @@ async function openBookModal(dikshaId, initialTitle = 'Loading Book...') {
         canvasWrapper.style.display = 'none';
         errorBox.style.display = 'flex';
 
-        let errHeading = 'Reading Resource Unavailable';
+        let errHeading = 'Textbook Resource Unavailable';
         let errDesc = data.message || 'Reading resource is not available for this textbook.';
 
-        if (data.reason === 'RESOURCE_VALIDATION_FAILED') {
+        if (data.reason === 'IDENTITY_MISMATCH_ONLY') {
+          errHeading = 'Subject or Grade Level Mismatch';
+          errDesc = 'The verified reading resources belong to a different subject or grade level than the requested textbook.';
+        } else if (data.reason === 'RESOURCE_VALIDATION_FAILED') {
           errHeading = 'Resource Verification Failed';
-          errDesc = 'We could not verify the textbook resource.';
-        } else if (data.reason === 'RESOURCE_TEMPORARILY_UNAVAILABLE') {
-          errHeading = 'Service Temporarily Unavailable';
-          errDesc = 'The textbook service is temporarily unavailable. Please try again.';
+          errDesc = 'We could not verify the binary integrity of the textbook resource on DIKSHA.';
+        } else if (data.reason === 'RESOURCE_NOT_FOUND' || data.reason === 'GENUINELY_ABSENT_ON_DIKSHA') {
+          errHeading = 'Textbook Content Not Found';
+          errDesc = 'This textbook resource is not currently available on the DIKSHA Sunbird portal repository.';
         }
 
         errorBox.innerHTML = `
@@ -305,9 +308,13 @@ async function openBookModal(dikshaId, initialTitle = 'Loading Book...') {
           <p style="color: #64748b; font-size: 0.9rem; margin: 0.5rem 0 1.25rem 0; max-width: 480px; line-height: 1.5;">
             ${escapeHtml(errDesc)}
           </p>
-          <div style="display: flex; gap: 10px;">
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
             <button onclick="closePdfModal()" class="btn-primary"><i class="fa-solid fa-arrow-left"></i> Back to Textbooks</button>
+            <button onclick="reportMissingContent('${escapeHtml(dikshaId)}')" class="btn-primary" style="background: #e2e8f0; color: #334155; border: 1px solid #cbd5e1;">
+              <i class="fa-solid fa-flag"></i> Report Missing Content
+            </button>
           </div>
+        `;
         `;
       }
     } else {

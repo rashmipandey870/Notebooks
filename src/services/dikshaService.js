@@ -1,87 +1,113 @@
 const https = require('https');
 const http = require('http');
 const { getBoardByCode, BOARDS } = require('../config/boards');
+const cache = require('./persistentCache');
 
 const DIKSHA_BASE_URL = 'https://diksha.gov.in/api';
-const cache = new Map();
-const CACHE_TTL_MS = 2 * 60 * 1000; // 2 mins cache
 
 /**
- * Make HTTPS POST request to DIKSHA API
+ * Make HTTPS POST request to DIKSHA API with retry-with-backoff for transient errors
  */
-function makePostRequest(endpoint, payload) {
-  return new Promise((resolve, reject) => {
-    const data = JSON.stringify(payload);
-    const url = new URL(`${DIKSHA_BASE_URL}${endpoint}`);
+async function makePostRequest(endpoint, payload, maxAttempts = 3) {
+  const data = JSON.stringify(payload);
+  const url = new URL(`${DIKSHA_BASE_URL}${endpoint}`);
 
-    const req = https.request(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(data),
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
-      }
-    }, res => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve(JSON.parse(body));
-          } else {
-            resolve({ error: true, statusCode: res.statusCode, message: body });
-          }
-        } catch (e) {
-          reject(new Error(`Failed to parse response: ${e.message}`));
-        }
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await new Promise((resolve, reject) => {
+        const req = https.request(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(data),
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+          },
+          timeout: 8000
+        }, res => {
+          let body = '';
+          res.on('data', chunk => body += chunk);
+          res.on('end', () => {
+            try {
+              if (res.statusCode >= 200 && res.statusCode < 300) {
+                resolve(JSON.parse(body));
+              } else {
+                resolve({ error: true, statusCode: res.statusCode, message: body });
+              }
+            } catch (e) {
+              resolve({ error: true, message: `Failed to parse JSON response: ${e.message}` });
+            }
+          });
+        });
+
+        req.on('error', err => resolve({ error: true, message: err.message }));
+        req.on('timeout', () => {
+          req.destroy();
+          resolve({ error: true, message: 'POST request timeout' });
+        });
+        req.write(data);
+        req.end();
       });
-    });
 
-    req.on('error', err => reject(err));
-    req.write(data);
-    req.end();
-  });
+      if (!res.error || attempt === maxAttempts) {
+        return res;
+      }
+    } catch (err) {
+      if (attempt === maxAttempts) {
+        return { error: true, message: err.message };
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, attempt * 500));
+  }
 }
 
 /**
- * Make HTTPS GET request to DIKSHA API or direct URLs
+ * Make HTTPS GET request to DIKSHA API or direct URLs with retry-with-backoff
  */
-function makeGetRequest(urlStr) {
-  return new Promise((resolve) => {
+async function makeGetRequest(urlStr, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const url = new URL(urlStr);
-      const req = https.request(url, {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
-        },
-        timeout: 8000
-      }, res => {
-        let body = '';
-        res.on('data', chunk => body += chunk);
-        res.on('end', () => {
-          try {
-            if (res.statusCode >= 200 && res.statusCode < 300) {
-              resolve(JSON.parse(body));
-            } else {
-              resolve({ error: true, statusCode: res.statusCode, message: body });
+      const res = await new Promise((resolve) => {
+        const req = https.request(url, {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+          },
+          timeout: 8000
+        }, res => {
+          let body = '';
+          res.on('data', chunk => body += chunk);
+          res.on('end', () => {
+            try {
+              if (res.statusCode >= 200 && res.statusCode < 300) {
+                resolve(JSON.parse(body));
+              } else {
+                resolve({ error: true, statusCode: res.statusCode, message: body });
+              }
+            } catch (e) {
+              resolve({ error: true, message: e.message });
             }
-          } catch (e) {
-            resolve({ error: true, message: e.message });
-          }
+          });
         });
+
+        req.on('error', err => resolve({ error: true, message: err.message }));
+        req.on('timeout', () => {
+          req.destroy();
+          resolve({ error: true, message: 'GET request timeout' });
+        });
+        req.end();
       });
 
-      req.on('error', err => resolve({ error: true, message: err.message }));
-      req.on('timeout', () => {
-        req.destroy();
-        resolve({ error: true, message: 'GET request timeout' });
-      });
-      req.end();
+      if (!res.error || attempt === maxAttempts) {
+        return res;
+      }
     } catch (err) {
-      resolve({ error: true, message: err.message });
+      if (attempt === maxAttempts) {
+        return { error: true, message: err.message };
+      }
     }
-  });
+    await new Promise(resolve => setTimeout(resolve, attempt * 500));
+  }
 }
 
 /**
@@ -209,6 +235,9 @@ function discoverCandidatesFromNode(node, source, candidates, grade = 'Class 10'
     const nodeSubject = node.subject ? (Array.isArray(node.subject) ? node.subject : [node.subject]) : null;
     const nodeGradeLevel = node.gradeLevel ? (Array.isArray(node.gradeLevel) ? node.gradeLevel : [node.gradeLevel]) : null;
 
+    const inheritedSubject = nodeSubject || (Array.isArray(subject) ? subject : (subject ? [subject] : null));
+    const inheritedGradeLevel = nodeGradeLevel || (Array.isArray(grade) ? grade : (grade ? [grade] : null));
+
     candidates.push({
       id: node.identifier || `cand_${candidates.length + 1}`,
       contentId: node.identifier,
@@ -222,16 +251,21 @@ function discoverCandidatesFromNode(node, source, candidates, grade = 'Class 10'
       nodeSubject: nodeSubject,
       nodeGradeLevel: nodeGradeLevel,
       nodeTitle: node.name ? node.name.trim() : null,
-      subject: nodeSubject,
-      gradeLevel: nodeGradeLevel
+      subject: inheritedSubject,
+      gradeLevel: inheritedGradeLevel
     });
   }
+
+  const nodeSubject = node.subject ? (Array.isArray(node.subject) ? node.subject : [node.subject]) : null;
+  const nodeGradeLevel = node.gradeLevel ? (Array.isArray(node.gradeLevel) ? node.gradeLevel : [node.gradeLevel]) : null;
+  const currentGrade = nodeGradeLevel || grade;
+  const currentSubject = nodeSubject || subject;
 
   const childArray = node.children || node.childNodes || node.contents || node.linkedContent || node.units;
   if (Array.isArray(childArray)) {
     for (const child of childArray) {
       if (typeof child === 'object' && child !== null) {
-        discoverCandidatesFromNode(child, source === 'book' ? 'chapter' : source, candidates, grade, subject);
+        discoverCandidatesFromNode(child, source === 'book' ? 'chapter' : source, candidates, currentGrade, currentSubject);
       }
     }
   }
@@ -456,22 +490,33 @@ function normalizeChapterTitleKey(title) {
  * Recursively parse multi-level DIKSHA hierarchy nodes (Levels 1 to 4)
  * Strictly filters out non-chapter media labels ("Book", "MP4 VIDEO") and deduplicates titles
  */
-function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1 }, grade = 'Class 10', subject = 'General', seenTitles = new Set()) {
+function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state = { chapterNumber: 1 }, grade = 'Class 10', subject = 'General', seenNodeIds = new Set(), rootBookPdfUrl = null) {
   let chapters = [];
   if (!Array.isArray(nodes)) return chapters;
+
+  const rootPdf = rootBookPdfUrl || parentPdfUrl;
 
   for (const node of nodes) {
     if (!node) continue;
     const title = node.name ? node.name.trim() : '';
     const foundPdf = findPdfUrlInNode(node);
-    const chapterPdfUrl = foundPdf || parentPdfUrl;
+
+    // STRICT ISOLATION: A chapter never inherits a sibling chapter's PDF.
+    // If node has no PDF of its own, it falls back ONLY to the book-level root PDF.
+    const hasOwnPdf = !!foundPdf;
+    const chapterPdfUrl = hasOwnPdf ? foundPdf : rootPdf;
+    const isFallbackToBookPdf = !hasOwnPdf;
 
     const isIgnored = isIgnoredNodeTitle(title, node.mimeType, node.primaryCategory);
     const titleKey = normalizeChapterTitleKey(title);
-    const isDuplicate = titleKey && seenTitles.has(titleKey);
+
+    // HARD IDENTITY DEDUP: Prioritize node.identifier, fallback to title + pdfUrl combo
+    const nodeId = node.identifier;
+    const dedupKey = nodeId ? `node:${nodeId}` : (titleKey ? `title:${titleKey}_${chapterPdfUrl || ''}` : null);
+    const isDuplicate = dedupKey && seenNodeIds.has(dedupKey);
 
     if (title && !isIgnored && !isDuplicate) {
-      if (titleKey) seenTitles.add(titleKey);
+      if (dedupKey) seenNodeIds.add(dedupKey);
       const printedStart = (node.startPage && !isNaN(parseInt(node.startPage, 10))) ? parseInt(node.startPage, 10) : null;
       const printedEnd = (node.endPage && !isNaN(parseInt(node.endPage, 10))) ? parseInt(node.endPage, 10) : null;
 
@@ -494,7 +539,8 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
         pdfEndPage: null,
         pdfUrl: chapterPdfUrl,
         proxyPdfUrl: proxyPdfUrl,
-        downloadUrl: downloadUrl
+        downloadUrl: downloadUrl,
+        isFallbackToBookPdf: isFallbackToBookPdf
       };
 
       chapters.push(chapterObj);
@@ -503,7 +549,8 @@ function parseDikshaHierarchyNodes(nodes, level = 1, parentPdfUrl = null, state 
     const childNodes = node.children || node.childNodes || node.contents || node.linkedContent || node.units;
     if (Array.isArray(childNodes) && childNodes.length > 0) {
       const nextLevel = isIgnored ? level : level + 1;
-      const childChapters = parseDikshaHierarchyNodes(childNodes, nextLevel, chapterPdfUrl, state, grade, subject, seenTitles);
+      const nextParentPdf = hasOwnPdf ? foundPdf : rootPdf;
+      const childChapters = parseDikshaHierarchyNodes(childNodes, nextLevel, nextParentPdf, state, grade, subject, seenNodeIds, rootPdf);
       chapters = chapters.concat(childChapters);
     }
   }
@@ -611,10 +658,7 @@ async function resolveBookReadingResource(bookId) {
 
   const cacheKey = `book_resource:${bookId}`;
   if (cache.has(cacheKey)) {
-    const cached = cache.get(cacheKey);
-    if (Date.now() - cached.timestamp < CACHE_TTL_MS) {
-      return cached.data;
-    }
+    return cache.get(cacheKey);
   }
 
   console.log(`\n========================================================`);
@@ -799,13 +843,16 @@ async function resolveBookReadingResource(bookId) {
     || (rawContent.children || rawContent.childNodes || rawContent.contents)
     || [];
 
+  const rootBookPdfUrl = identityVerifiedCandidates[0] ? identityVerifiedCandidates[0].url : (validCandidates[0] ? validCandidates[0].url : null);
   const chapters = parseDikshaHierarchyNodes(
     rootNodes,
     1,
-    identityVerifiedCandidates[0] ? identityVerifiedCandidates[0].url : (validCandidates[0] ? validCandidates[0].url : null),
+    rootBookPdfUrl,
     state,
     grade,
-    subject
+    subject,
+    new Set(),
+    rootBookPdfUrl
   );
 
   // Step 8: Select primary resource from identity verified candidates or first chapter PDF
@@ -906,10 +953,7 @@ async function searchDikshaBooks(options = {}) {
 
   const cacheKey = `search:${JSON.stringify({ board, gradeLevel, medium, subject, query, contentType, limit, offset })}`;
   if (cache.has(cacheKey)) {
-    const cached = cache.get(cacheKey);
-    if (Date.now() - cached.timestamp < CACHE_TTL_MS) {
-      return cached.data;
-    }
+    return cache.get(cacheKey);
   }
 
   const filters = {};

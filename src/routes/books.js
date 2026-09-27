@@ -51,13 +51,16 @@ router.get('/books/:id', async (req, res) => {
     const bookId = req.params.id;
     const resolved = await resolveBookReadingResource(bookId);
 
-    if (!resolved || !resolved.book) {
-      return res.status(404).json({
+    if (!resolved || !resolved.success || !resolved.book) {
+      const statusCode = resolved && resolved.reason === 'IDENTITY_MISMATCH_ONLY' ? 422 : 404;
+      return res.status(statusCode).json({
         success: false,
         bookId: bookId,
-        book: null,
-        reason: 'RESOURCE_NOT_FOUND',
-        message: `Book with identifier '${bookId}' not found on DIKSHA portal`
+        book: resolved ? resolved.book : null,
+        reason: resolved ? (resolved.reason || 'RESOURCE_NOT_FOUND') : 'RESOURCE_NOT_FOUND',
+        message: resolved ? (resolved.message || `Book with identifier '${bookId}' not found on DIKSHA portal`) : `Book with identifier '${bookId}' not found on DIKSHA portal`,
+        rejectedCount: resolved ? (resolved.rejectedCount || 0) : 0,
+        rejectedCandidates: resolved ? (resolved.rejectedCandidates || []) : []
       });
     }
 
@@ -66,6 +69,37 @@ router.get('/books/:id', async (req, res) => {
     res.status(500).json({
       success: false,
       message: `Error resolving book details: ${err.message}`
+    });
+  }
+});
+
+/**
+ * GET /api/v1/health/coverage
+ * Exposes latest matrix coverage audit report for system observability
+ */
+router.get('/health/coverage', async (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const reportPath = path.join(__dirname, '..', '..', 'data', 'coverage_report.json');
+
+    if (fs.existsSync(reportPath)) {
+      const reportData = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+      return res.json({
+        success: true,
+        report: reportData
+      });
+    } else {
+      return res.json({
+        success: true,
+        message: 'No saved coverage audit report found. Run "node scripts/audit_coverage.js" to generate a full report.',
+        summary: null
+      });
+    }
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: `Failed to fetch coverage health status: ${err.message}`
     });
   }
 });

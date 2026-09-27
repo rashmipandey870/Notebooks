@@ -1,84 +1,82 @@
-const http = require('http');
+const assert = require('assert');
+const { searchDikshaBooks, resolveBookReadingResource } = require('../src/services/dikshaService');
 
-function makeRequest(path) {
-  return new Promise((resolve, reject) => {
-    http.get(`http://localhost:3000${path}`, res => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(body));
-        } catch (e) {
-          reject(new Error(`Parse error: ${e.message}`));
-        }
-      });
-    }).on('error', reject);
-  });
-}
-
-async function runTests() {
+async function runGlobalResolverTests() {
   console.log("========================================================");
-  console.log("RUNNING GLOBAL TEXTBOOK RESOURCE RESOLVER SUITE");
+  console.log("RUNNING GLOBAL TEXTBOOK RESOURCE RESOLVER & ISOLATION SUITE");
   console.log("========================================================\n");
 
-  const testBoards = [
-    { name: 'CBSE', code: 'CBSE', class: 'Class 10', subject: 'Mathematics' },
-    { name: 'Bihar', code: 'BIHAR', class: 'Class 10', subject: 'Mathematics' },
-    { name: 'UP Board', code: 'UP', class: 'Class 10', subject: 'Science' },
-    { name: 'Maharashtra', code: 'MH', class: 'Class 10', subject: 'Science' },
-    { name: 'Tamil Nadu', code: 'TN', class: 'Class 10', subject: 'Science' }
+  const testBooks = [
+    { name: 'CBSE Class 10 Math', board: 'CBSE', class: 'Class 10', subject: 'Mathematics' },
+    { name: 'CBSE Class 9 Science', board: 'CBSE', class: 'Class 9', subject: 'Science' },
+    { name: 'UP Board Class 10 Hindi', board: 'UP', class: 'Class 10', subject: 'Hindi' },
+    { name: 'MP Board Class 8 Math', board: 'MP', class: 'Class 8', subject: 'Mathematics' },
+    { name: 'MH Board Class 10 Science', board: 'MH', class: 'Class 10', subject: 'Science' }
   ];
 
-  const resolvedBookPdfs = new Map();
+  const resolvedBookMap = new Map();
 
-  for (const board of testBoards) {
-    console.log(`--- Testing Board: [${board.name}] (${board.class} - ${board.subject}) ---`);
-    const searchRes = await makeRequest(`/api/v1/books?board=${board.code}&class=${encodeURIComponent(board.class)}&subject=${encodeURIComponent(board.subject)}&limit=5`);
+  for (const item of testBooks) {
+    console.log(`--- Testing: [${item.name}] (${item.board} - ${item.class} - ${item.subject}) ---`);
+    const searchRes = await searchDikshaBooks({
+      board: item.board,
+      gradeLevel: item.class,
+      subject: item.subject,
+      limit: 5
+    });
 
-    if (!searchRes.success || !searchRes.books || searchRes.books.length === 0) {
-      console.log(`❌ Search returned 0 books for ${board.name}`);
-      continue;
+    assert.ok(searchRes.success, `Search should succeed for ${item.name}`);
+    if (searchRes.books.length > 0) {
+      const topBook = searchRes.books[0];
+      const detailRes = await resolveBookReadingResource(topBook.id);
+      if (detailRes && detailRes.success && detailRes.book) {
+        const book = detailRes.book;
+        console.log(`  Resolved Book ID: [${book.id}] - "${book.title}"`);
+        console.log(`  PDF Valid: ${book.pdfValid}`);
+        console.log(`  PDF URL: ${book.pdfUrl}`);
+        console.log(`  Chapters Count: ${book.chapters ? book.chapters.length : 0}`);
+
+        resolvedBookMap.set(book.id, {
+          title: book.title,
+          subject: book.subject,
+          pdfUrl: book.pdfUrl,
+          chapters: book.chapters || []
+        });
+
+        // Verify chapter fallback property is present
+        if (book.chapters && book.chapters.length > 0) {
+          const sampleCh = book.chapters[0];
+          assert.strictEqual(typeof sampleCh.isFallbackToBookPdf, 'boolean', 'Chapter must contain isFallbackToBookPdf boolean property');
+        }
+      }
     }
-
-    console.log(`  Found ${searchRes.books.length} textbook candidates for ${board.name}`);
-    const targetBook = searchRes.books[0];
-    console.log(`  Selected Book ID: [${targetBook.dikshaId}] - "${targetBook.title}"`);
-
-    const detailRes = await makeRequest(`/api/v1/books/${targetBook.dikshaId}`);
-    if (!detailRes || !detailRes.book) {
-      console.log(`❌ Detail endpoint returned null for ${targetBook.dikshaId}`);
-      continue;
-    }
-
-    const book = detailRes.book;
-    console.log(`  Resolver Status: ${detailRes.success ? 'SUCCESS' : 'NO_RESOURCE'}`);
-    console.log(`  Title: "${book.title}"`);
-    console.log(`  Board: "${book.board}"`);
-    console.log(`  PDF Valid: ${book.pdfValid}`);
-    console.log(`  PDF URL: ${book.pdfUrl}`);
-    console.log(`  Proxy URL: ${book.proxyPdfUrl}`);
-    console.log(`  Chapters Count: ${book.chapters ? book.chapters.length : 0}`);
-
-    if (book.pdfValid && book.pdfUrl) {
-      resolvedBookPdfs.set(targetBook.dikshaId, book.pdfUrl);
-    }
-    console.log('\n');
   }
 
-  console.log("========================================================");
+  console.log("\n========================================================");
   console.log("CROSS-BOOK PDF ISOLATION VERIFICATION");
   console.log("========================================================");
-  const pdfUrls = Array.from(resolvedBookPdfs.values());
-  const uniquePdfs = new Set(pdfUrls);
 
-  console.log(`Resolved Books Count: ${resolvedBookPdfs.size}`);
-  console.log(`Unique PDF URLs Count: ${uniquePdfs.size}`);
+  const bookIds = Array.from(resolvedBookMap.keys());
+  for (let i = 0; i < bookIds.length; i++) {
+    for (let j = i + 1; j < bookIds.length; j++) {
+      const bookA = resolvedBookMap.get(bookIds[i]);
+      const bookB = resolvedBookMap.get(bookIds[j]);
 
-  if (resolvedBookPdfs.size > 1 && uniquePdfs.size === resolvedBookPdfs.size) {
-    console.log("✅ PASSED: Every book resolved its own distinct PDF resource without cross-book leakage!");
-  } else {
-    console.log("ℹ️ Resolved PDFs checked.");
+      if (bookA.pdfUrl && bookB.pdfUrl) {
+        assert.notStrictEqual(
+          bookA.pdfUrl,
+          bookB.pdfUrl,
+          `Distinct books "${bookA.title}" and "${bookB.title}" must NOT share the same primary PDF URL!`
+        );
+      }
+    }
   }
+
+  console.log("✅ CROSS-BOOK PDF ISOLATION PASSED: All distinct books resolved unique PDF URLs!");
+  console.log("========================================================\n");
 }
 
-runTests().catch(err => console.error("Test execution error:", err));
+runGlobalResolverTests().catch(err => {
+  console.error("Test execution failed:", err);
+  process.exit(1);
+});

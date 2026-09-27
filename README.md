@@ -99,6 +99,24 @@ A REST API backend providing Class 8 to Class 12 digital notebooks, NCERT & Stat
 - `GET /api/v1/notes`: Fetch all user notes.
 - `POST /api/v1/notes`: Save a new note (`{ "title": "...", "content": "..." }`).
 
+### 6. System Health & Observability
+
+- `GET /api/v1/health/coverage`: Returns latest matrix coverage audit report across all 14 state & central boards × Classes 8–12.
+- `node scripts/audit_coverage.js`: Command line script to run a full 14 boards × Classes 8–12 × subjects matrix coverage audit.
+
+---
+
+## Error Taxonomy Reference
+
+The API surfaces structured, actionable failure reason codes for unresolvable or missing resources:
+
+| Error Code | HTTP Status | Description | Actionable Resolution |
+| :--- | :--- | :--- | :--- |
+| `IDENTITY_MISMATCH_ONLY` | `422` | Candidate PDF discovered, but its subject or grade metadata contradicts the requested book | Frontend alerts user of subject/grade conflict; offers report missing content |
+| `RESOURCE_VALIDATION_FAILED` | `404` | Candidate PDF found, but failed binary magic bytes check (`%PDF-` header missing or invalid) | Frontend alerts user of corrupted upstream resource |
+| `RESOURCE_NOT_FOUND` | `404` | No valid PDF reading candidate could be discovered in DIKSHA hierarchy tree | Content not uploaded to DIKSHA; report button offered |
+| `GENUINELY_ABSENT_ON_DIKSHA` | `404` | Search API returned 0 textbook metadata entries for given board/class/subject filter | Board content absent on DIKSHA Sunbird repository |
+
 ---
 
 ## Project Structure
@@ -106,23 +124,30 @@ A REST API backend providing Class 8 to Class 12 digital notebooks, NCERT & Stat
 ```
 diksha-notebook-api/
 ├── data/
+│   ├── cache.json              # Persistent disk-backed cache for API resolutions
+│   ├── coverage_report.json    # Machine-readable 14 boards coverage audit report
 │   └── user_notes.json         # Storage for user notes
+├── scripts/
+│   └── audit_coverage.js       # 14 Boards x Classes 8-12 matrix coverage audit script
 ├── src/
 │   ├── config/
 │   │   ├── boards.js           # 14 State Boards metadata & DIKSHA filter mapping
 │   │   └── subjects.js         # Subjects taxonomy for Class 8-12
 │   ├── routes/
 │   │   ├── boards.js           # Boards, classes, & subjects API routes
-│   │   ├── books.js            # DIKSHA book search & detail routes
+│   │   ├── books.js            # DIKSHA book search, detail, & /health/coverage routes
 │   │   ├── notebooks.js        # Chapter study packs & formulas routes
 │   │   ├── userNotes.js        # Personal notes CRUD routes
 │   │   └── pdfProxy.js         # CORS-safe PDF proxy streaming route
 │   ├── services/
-│   │   ├── dikshaService.js    # Sunbird REST API connection & parser
-│   │   └── notebookService.js  # Chapter notes generator & note manager
+│   │   ├── dikshaService.js    # Sunbird REST API connection, identity verifier & parser
+│   │   ├── notebookService.js  # Chapter notes generator & note manager
+│   │   └── persistentCache.js  # Disk-backed persistent cache service
 │   └── server.js               # Express application entry point
 ├── test/
-│   └── api.test.js             # Integration tests
+│   ├── api.test.js                         # API integration tests
+│   ├── global_resolver_test.js             # Global resolver & cross-book isolation tests
+│   └── identity_verification_regression.test.js # Grade & subject identity verification regression tests
 ├── package.json
 └── README.md
 ```
