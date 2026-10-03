@@ -1215,6 +1215,105 @@ function dedupeByCompositeKey(books) {
 }
 
 /**
+ * Rank, score, tag, and filter search results to prioritize official primary textbooks
+ * and eliminate noise (comic books, experiment PDFs, workbooks, practice papers, etc.)
+ */
+function rankAndFilterBooks(books, requestedSubject = '', requestedGrade = '', requestedBoard = '', userQuery = '', requestedMedium = '', primaryOnly = false) {
+  if (!Array.isArray(books) || books.length === 0) return [];
+
+  const isExplicitSearch = !!(userQuery && userQuery.trim().length > 0);
+  const isPrimaryOnly = primaryOnly === true || primaryOnly === 'true' || primaryOnly === '1';
+
+  // Noise filter: Reject supplementary items (experiments, comic books, workbooks, practice papers) unless explicitly searched for in userQuery
+  const noiseRegex = /\b(experiment_\d+|experiment\b|comic book|lab manual|practical|creative and critical thinking|practice book|question bank|sample paper|testing_|workbook|work book|mathemagic|project-\d+|project_\d+|project\s+\d+|teacher handbook|pedagogy|lesson plan|activity book|solutions)\b/i;
+
+  const filteredBooks = books.filter(b => {
+    if (isExplicitSearch) return true; // Keep everything if user explicitly typed a keyword search
+    const title = b.title || '';
+    if (noiseRegex.test(title)) return false;
+    return true;
+  });
+
+  const candidatesToScore = filteredBooks.length > 0 ? filteredBooks : books;
+  const reqSubj = (requestedSubject || '').toLowerCase().trim();
+  const reqMedium = (requestedMedium || '').toLowerCase().trim();
+
+  const scoredBooks = candidatesToScore.map(book => {
+    let score = 0;
+    const title = (book.title || '').toLowerCase().trim();
+    const publisher = (book.publisher || '').toLowerCase();
+    const primaryCategory = (book.primaryCategory || '').toLowerCase();
+
+    // 1. Official Publisher Bonus
+    if (publisher.includes('ncert') || publisher.includes('cbse') || publisher.includes('board') || publisher.includes('bureau') || publisher.includes('scert') || publisher.includes('textbook') || publisher.includes('samagra') || publisher.includes('state')) {
+      score += 25;
+    }
+
+    // 2. Official Textbook Title Bonus
+    if (title.includes('textbook') || title.includes('पाठ्यपुस्तक') || title.includes('text book')) {
+      score += 40;
+    }
+    if (title.includes('(new)')) {
+      score += 20;
+    }
+
+    // 3. Requested Subject Bonus
+    if (reqSubj && (title.includes(reqSubj) || reqSubj.includes(title.replace(/class\s*\d+/g, '').trim()))) {
+      score += 30;
+    }
+
+    // 4. Primary Category Bonus
+    if (primaryCategory === 'digital textbook' || primaryCategory === 'etextbook') {
+      score += 20;
+    }
+
+    // 5. Medium Alignment Bonus
+    if (reqMedium) {
+      const isHindiMedium = reqMedium.includes('hindi') || reqMedium.includes('hi');
+      const isEnglishMedium = reqMedium.includes('english') || reqMedium.includes('em');
+      const hasHindiText = /[\u0900-\u097F]/.test(title);
+
+      if (isHindiMedium && hasHindiText) {
+        score += 35;
+      } else if (isEnglishMedium && !hasHindiText) {
+        score += 35;
+      }
+    }
+
+    // Penalize single chapter splits without "Textbook" or "Part"
+    const isSingleChapter = !title.includes('textbook') && !title.includes('part') && !title.includes('पाठ्यपुस्तक') && !title.includes('class') && title.split(/\s+/).length <= 3;
+    if (isSingleChapter) {
+      score -= 20;
+    }
+
+    return { book, score };
+  });
+
+  scoredBooks.sort((a, b) => b.score - a.score);
+
+  const highestScore = scoredBooks[0] ? scoredBooks[0].score : 0;
+
+  const finalBooks = scoredBooks.map((item, idx) => {
+    const b = item.book;
+    if (idx === 0 || (idx === 1 && item.score >= highestScore - 15)) {
+      b.isPrimaryTextbook = true;
+      b.badgeText = '⭐ Official Main Textbook';
+    } else {
+      b.isPrimaryTextbook = false;
+      b.badgeText = null;
+    }
+    return b;
+  });
+
+  if (isPrimaryOnly) {
+    const primaryOnlyList = finalBooks.filter(b => b.isPrimaryTextbook);
+    return primaryOnlyList.length > 0 ? primaryOnlyList : finalBooks.slice(0, 3);
+  }
+
+  return finalBooks;
+}
+
+/**
  * Search textbooks & notebooks across DIKSHA portal
  * Uses a 5-Rung Progressive Relaxation Ladder for state board queries
  */
@@ -1226,11 +1325,12 @@ async function searchDikshaBooks(options = {}) {
     subject,
     query,
     contentType,
+    primaryOnly,
     limit = 20,
     offset = 0
   } = options;
 
-  const cacheKey = `search:${JSON.stringify({ board, gradeLevel, medium, subject, query, contentType, limit, offset })}`;
+  const cacheKey = `search:${JSON.stringify({ board, gradeLevel, medium, subject, query, contentType, primaryOnly, limit, offset })}`;
   if (cache.has(cacheKey)) {
     return cache.get(cacheKey);
   }
@@ -1383,11 +1483,12 @@ async function searchDikshaBooks(options = {}) {
         const deduped = dedupeByCompositeKey(dedupedById);
 
         if (deduped.length > 0) {
-          normalizedBooks = deduped;
-          rawDuplicatesCount = rawNormalized.length - deduped.length;
+          const ranked = rankAndFilterBooks(deduped, subject, gradeLevel, board, query, medium, primaryOnly);
+          normalizedBooks = ranked;
+          rawDuplicatesCount = rawNormalized.length - ranked.length;
           resolvedVia = rungNames[rung];
-          totalApiCount = count > 0 ? count : deduped.length;
-          console.log(`[SEARCH LADDER] Board [${board || 'ANY'}] Grade [${gradeLevel || 'ANY'}] resolved ${deduped.length} books via Rung ${rung} (${rungNames[rung]})`);
+          totalApiCount = count > 0 ? count : ranked.length;
+          console.log(`[SEARCH LADDER] Board [${board || 'ANY'}] Grade [${gradeLevel || 'ANY'}] resolved ${ranked.length} ranked books via Rung ${rung} (${rungNames[rung]})`);
           break;
         }
       }

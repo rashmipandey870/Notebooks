@@ -178,6 +178,11 @@ async function loadBooks() {
     if (currentMedium) params.append('medium', currentMedium);
     if (currentSearch) params.append('query', currentSearch);
 
+    const primaryToggle = document.getElementById('primary-only-toggle');
+    if (primaryToggle && primaryToggle.checked) {
+      params.append('primaryOnly', 'true');
+    }
+
     const res = await fetch(`/api/v1/books?${params.toString()}`);
     const data = await res.json();
 
@@ -231,13 +236,23 @@ function renderBooks(books) {
     const proxyPdfUrl = book.proxyPdfUrl;
     const downloadUrl = book.downloadUrl;
     const hasCover = !!book.posterImage;
+    const isPrimary = !!book.isPrimaryTextbook;
+
+    const cardStyle = isPrimary
+      ? 'border: 2px solid #f59e0b; box-shadow: 0 8px 18px -2px rgba(245, 158, 11, 0.2); position: relative;'
+      : 'position: relative;';
+
+    const primaryBadge = isPrimary
+      ? `<span style="position: absolute; top: 10px; right: 10px; background: linear-gradient(135deg, #f59e0b, #d97706); color: #ffffff; font-size: 0.72rem; font-weight: 800; padding: 4px 10px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.3); z-index: 5;"><i class="fa-solid fa-star"></i> Official Main Textbook</span>`
+      : '';
 
     const coverStyle = hasCover
       ? `background-image: url('${book.posterImage}');`
       : `background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);`;
 
     return `
-      <div class="book-card">
+      <div class="book-card" style="${cardStyle}">
+        ${primaryBadge}
         <div class="book-cover-area" style="${coverStyle}">
           ${hasCover ? '<div class="book-cover-overlay">' : ''}
             <span class="book-board-tag">${book.board || currentBoard}</span>
@@ -338,12 +353,16 @@ async function openBookModal(dikshaId, initialTitle = 'Loading Book...') {
           const levelIndent = (ch.level && ch.level > 1) ? `padding-left: ${Math.min((ch.level - 1) * 12 + 12, 48)}px; font-size: 0.85rem;` : '';
           const levelBadge = (ch.level && ch.level > 1) ? `<span style="font-size:0.68rem; padding: 1px 4px; background:#e0f2fe; color:#0284c7; border-radius:3px; margin-right:4px; font-weight:600;">L${ch.level}</span>` : '';
 
+          const pageBadge = ch.startPage
+            ? `<span style="font-size:0.72rem; background:#f1f5f9; color:#334155; padding:2px 6px; border-radius:4px; font-weight:600;"><i class="fa-solid fa-file-lines" style="color:#10b981;"></i> Pages ${ch.startPage}–${ch.endPage || ch.startPage}</span>`
+            : `<span style="font-size:0.72rem; background:#eff6ff; color:#2563eb; padding:2px 6px; border-radius:4px; font-weight:600;"><i class="fa-solid fa-book"></i> Full Textbook</span>`;
+
           return `
             <div class="chapter-item ${idx === 0 ? 'active' : ''}" data-chapter-id="${ch.identifier}" style="${levelIndent}" onclick="handleChapterClick('${ch.identifier}')">
-              <div class="chapter-item-title">${levelBadge}${escapeHtml(ch.title)}</div>
-              <div class="chapter-item-meta">
-                <span>Ch ${ch.chapterNumber}</span>
-                <span style="color:#3b82f6;">Read &rarr;</span>
+              <div class="chapter-item-title">${levelBadge}<strong>Ch ${ch.chapterNumber}:</strong> ${escapeHtml(ch.title)}</div>
+              <div class="chapter-item-meta" style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                ${pageBadge}
+                <span style="color:#3b82f6; font-size:0.78rem; font-weight:600;">Read &rarr;</span>
               </div>
             </div>
           `;

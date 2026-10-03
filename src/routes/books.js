@@ -16,6 +16,7 @@ router.get('/books', async (req, res) => {
       subject,
       query,
       contentType,
+      primaryOnly,
       limit = 20,
       offset = 0
     } = req.query;
@@ -29,6 +30,7 @@ router.get('/books', async (req, res) => {
       subject,
       query,
       contentType,
+      primaryOnly,
       limit,
       offset
     });
