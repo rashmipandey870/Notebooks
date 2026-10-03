@@ -1215,8 +1215,8 @@ function dedupeByCompositeKey(books) {
 }
 
 /**
- * Rank, score, tag, and filter search results to prioritize official primary textbooks
- * and eliminate noise (comic books, experiment PDFs, workbooks, practice papers, etc.)
+ * Rank, score, tag, and filter search results so that FOR EACH SUBJECT,
+ * there is exactly ONE (1) official primary textbook selected and badged.
  */
 function rankAndFilterBooks(books, requestedSubject = '', requestedGrade = '', requestedBoard = '', userQuery = '', requestedMedium = '', primaryOnly = false) {
   if (!Array.isArray(books) || books.length === 0) return [];
@@ -1238,6 +1238,39 @@ function rankAndFilterBooks(books, requestedSubject = '', requestedGrade = '', r
   const reqSubj = (requestedSubject || '').toLowerCase().trim();
   const reqMedium = (requestedMedium || '').toLowerCase().trim();
 
+  // Helper to extract canonical subject key for grouping
+  function getBookSubjectKey(b) {
+    if (Array.isArray(b.subject) && b.subject.length > 0 && b.subject[0] && b.subject[0].trim().length > 0) {
+      const sName = b.subject[0].toLowerCase().trim();
+      if (sName.includes('math') || sName.includes('गणित')) return 'mathematics';
+      if (sName.includes('physic') || sName.includes('भौतिक')) return 'physics';
+      if (sName.includes('chemist') || sName.includes('रसायन')) return 'chemistry';
+      if (sName.includes('biol') || sName.includes('जीव')) return 'biology';
+      if (sName.includes('scien') || sName.includes('विज्ञान')) return 'science';
+      if (sName.includes('geograph') || sName.includes('भूगोल')) return 'geography';
+      if (sName.includes('histor') || sName.includes('इतिहास')) return 'history';
+      if (sName.includes('english') || sName.includes('अंग्रेजी')) return 'english';
+      if (sName.includes('hindi') || sName.includes('हिंदी')) return 'hindi';
+      if (sName.includes('social') || sName.includes('सामाजिक')) return 'social science';
+      if (sName.includes('economic') || sName.includes('अर्थशास्त्र')) return 'economics';
+      if (sName.includes('political') || sName.includes('রাজনীতি') || sName.includes('राजनीति')) return 'political science';
+      return sName;
+    }
+
+    const title = (b.title || '').toLowerCase();
+    if (title.includes('math') || title.includes('गणित')) return 'mathematics';
+    if (title.includes('physic') || title.includes('भौतिक')) return 'physics';
+    if (title.includes('chemist') || title.includes('रसायन')) return 'chemistry';
+    if (title.includes('biol') || title.includes('जीव')) return 'biology';
+    if (title.includes('scien') || title.includes('विज्ञान')) return 'science';
+    if (title.includes('geograph') || title.includes('भूगोल') || title.includes('location')) return 'geography';
+    if (title.includes('histor') || title.includes('इतिहास')) return 'history';
+    if (title.includes('english') || title.includes('flamingo') || title.includes('flight')) return 'english';
+    if (title.includes('hindi') || title.includes('हिंदी')) return 'hindi';
+    return (b.title || 'general').toLowerCase().trim();
+  }
+
+  // Score every candidate
   const scoredBooks = candidatesToScore.map(book => {
     let score = 0;
     const title = (book.title || '').toLowerCase().trim();
@@ -1286,31 +1319,51 @@ function rankAndFilterBooks(books, requestedSubject = '', requestedGrade = '', r
       score -= 20;
     }
 
-    return { book, score };
+    return {
+      book,
+      score,
+      subjectKey: getBookSubjectKey(book)
+    };
   });
 
-  scoredBooks.sort((a, b) => b.score - a.score);
-
-  const highestScore = scoredBooks[0] ? scoredBooks[0].score : 0;
-
-  const finalBooks = scoredBooks.map((item, idx) => {
-    const b = item.book;
-    if (idx === 0 || (idx === 1 && item.score >= highestScore - 15)) {
-      b.isPrimaryTextbook = true;
-      b.badgeText = '⭐ Official Main Textbook';
-    } else {
-      b.isPrimaryTextbook = false;
-      b.badgeText = null;
+  // Group candidates by subjectKey so each subject gets its own primary textbook!
+  const subjectGroups = new Map();
+  for (const item of scoredBooks) {
+    const sKey = item.subjectKey;
+    if (!subjectGroups.has(sKey)) {
+      subjectGroups.set(sKey, []);
     }
-    return b;
-  });
-
-  if (isPrimaryOnly) {
-    const primaryOnlyList = finalBooks.filter(b => b.isPrimaryTextbook);
-    return primaryOnlyList.length > 0 ? primaryOnlyList : finalBooks.slice(0, 3);
+    subjectGroups.get(sKey).push(item);
   }
 
-  return finalBooks;
+  const primaryTextbooks = [];
+  const secondaryTextbooks = [];
+
+  for (const [sKey, items] of subjectGroups.entries()) {
+    items.sort((a, b) => b.score - a.score);
+    const topScore = items[0] ? items[0].score : 0;
+
+    items.forEach((item, idx) => {
+      const b = item.book;
+      // Mark as primary textbook if it is top-scoring within its subject group
+      if (idx === 0 || (idx === 1 && item.score >= topScore - 15)) {
+        b.isPrimaryTextbook = true;
+        b.badgeText = '⭐ Official Main Textbook';
+        primaryTextbooks.push(b);
+      } else {
+        b.isPrimaryTextbook = false;
+        b.badgeText = null;
+        secondaryTextbooks.push(b);
+      }
+    });
+  }
+
+  // If primaryOnly is requested, return 1 primary textbook PER SUBJECT!
+  if (isPrimaryOnly) {
+    return primaryTextbooks.length > 0 ? primaryTextbooks : candidatesToScore;
+  }
+
+  return [...primaryTextbooks, ...secondaryTextbooks];
 }
 
 /**

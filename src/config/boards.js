@@ -239,9 +239,9 @@ const BOARDS = [
   // Eastern States
   {
     code: 'WB',
-    name: 'West Bengal Board of Secondary Education (WBBSE)',
+    name: 'West Bengal Board of Secondary Education (WBBSE / WBCHSE)',
     dikshaFilter: 'State (West Bengal)',
-    dikshaAliases: ['State (West Bengal)', 'West Bengal', 'WBBSE'],
+    dikshaAliases: ['State (West Bengal)', 'West Bengal', 'WBBSE', 'WBCHSE'],
     shortName: 'West Bengal Board',
     state: 'West Bengal',
     region: 'East',
