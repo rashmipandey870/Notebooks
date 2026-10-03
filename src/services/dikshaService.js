@@ -1215,11 +1215,165 @@ function dedupeByCompositeKey(books) {
 }
 
 /**
+ * Helper to sort and format individual chapter items into a clean Table of Contents (Ch 1..N)
+ */
+function sortAndFormatChapters(items) {
+  const chapterOrderMap = {
+    'संख्या पद्धति': 1,
+    'बहुपद': 2,
+    'निर्देशांक ज्यामिति': 3,
+    'दो चर वाले रैखिक समीकरण': 4,
+    'यूक्लिड की ज्यामिति का परिचय': 5,
+    'रेखाएं और कोण': 6,
+    'त्रिभुज': 7,
+    'चतुर्भुज': 8,
+    'समांतर चतुर्भुजों और त्रिभुजों के क्षेत्रफल': 9,
+    'वृत्त': 10,
+    'रचनाएँ': 11,
+    'हीरोन का सूत्र': 12,
+    'पृष्ठीय क्षेत्रफल और आयतन': 13,
+    'सांख्यिकी': 14,
+    'प्रायिकता': 15
+  };
+
+  const formatted = items.map((item, idx) => {
+    let chNum = idx + 1;
+    const titleClean = (item.title || '').trim();
+
+    for (const [key, num] of Object.entries(chapterOrderMap)) {
+      if (titleClean.includes(key)) {
+        chNum = num;
+        break;
+      }
+    }
+
+    const numMatch = titleClean.match(/^(?:chapter|lesson|unit|ch|l|poem|अध्याय)?\s*(\d+)[\.\s\:\-]/i);
+    if (numMatch) {
+      chNum = parseInt(numMatch[1], 10);
+    }
+
+    const cleanTitle = cleanChapterTitle(titleClean);
+
+    return {
+      chapterNumber: chNum,
+      identifier: item.id || item.dikshaId || `ch_${chNum}`,
+      title: cleanTitle,
+      level: 1,
+      startPage: 1,
+      endPage: null,
+      printedStartPage: 1,
+      printedEndPage: null,
+      pdfUrl: item.pdfUrl,
+      proxyPdfUrl: item.proxyPdfUrl || `/api/v1/pdf/proxy?url=${encodeURIComponent(item.pdfUrl)}`,
+      downloadUrl: item.downloadUrl || `/api/v1/download?url=${encodeURIComponent(item.pdfUrl)}&filename=${encodeURIComponent(`Ch${chNum}_${cleanTitle}`)}`,
+      isFallbackToBookPdf: false
+    };
+  });
+
+  formatted.sort((a, b) => a.chapterNumber - b.chapterNumber);
+
+  formatted.forEach((ch, i) => {
+    ch.chapterNumber = i + 1;
+  });
+
+  return formatted;
+}
+
+/**
+ * Synthesizes individual chapter PDF items into unified Master Textbooks
+ * with a complete Table of Contents (Ch 1..N) and seamless chapter navigation.
+ */
+function synthesizeMasterTextbooks(books, requestedBoard = '', requestedGrade = '', requestedSubject = '') {
+  if (!Array.isArray(books) || books.length === 0) return books;
+
+  // Group candidates by (board, grade, subject, medium)
+  const clusters = new Map();
+
+  for (const b of books) {
+    const boardStr = (b.board || requestedBoard || 'Board').toString().toLowerCase().trim();
+    const gradeStr = (Array.isArray(b.gradeLevel) ? b.gradeLevel[0] : (b.gradeLevel || requestedGrade || 'Class')).toString().toLowerCase().trim();
+    const subjStr = (Array.isArray(b.subject) ? b.subject[0] : (b.subject || requestedSubject || 'General')).toString().toLowerCase().trim();
+    const mediumStr = (Array.isArray(b.medium) ? b.medium[0] : (b.medium || 'English')).toString().toLowerCase().trim();
+
+    const clusterKey = `${boardStr}|${gradeStr}|${subjStr}|${mediumStr}`;
+    if (!clusters.has(clusterKey)) {
+      clusters.set(clusterKey, []);
+    }
+    clusters.get(clusterKey).push(b);
+  }
+
+  const result = [];
+
+  for (const [clusterKey, clusterBooks] of clusters.entries()) {
+    const chapterItems = clusterBooks.filter(b => b.pdfUrl && typeof b.pdfUrl === 'string' && b.pdfUrl.startsWith('http'));
+
+    if (chapterItems.length >= 2) {
+      const first = chapterItems[0];
+      const gradeDisplay = Array.isArray(first.gradeLevel) ? first.gradeLevel[0] : (first.gradeLevel || requestedGrade || 'Class 9');
+      const subjDisplay = Array.isArray(first.subject) ? first.subject[0] : (first.subject || requestedSubject || 'Mathematics');
+      const boardDisplay = first.board || requestedBoard || 'State Board';
+      const mediumDisplay = Array.isArray(first.medium) ? first.medium[0] : (first.medium || 'Hindi');
+
+      const isHindi = /[\u0900-\u097F]/.test(first.title) || (mediumDisplay && mediumDisplay.toLowerCase().includes('hindi'));
+
+      const masterTitle = isHindi
+        ? `${subjDisplay} (कक्षा ${gradeDisplay.replace(/\D/g, '')}) - संपूर्ण पाठ्यपुस्तक`
+        : `${gradeDisplay} ${subjDisplay} Complete Digital Textbook`;
+
+      const synthId = `synth_${boardDisplay}_${gradeDisplay}_${subjDisplay}_${mediumDisplay}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+      const sortedChapters = sortAndFormatChapters(chapterItems);
+
+      const masterBook = {
+        id: synthId,
+        dikshaId: synthId,
+        title: masterTitle,
+        description: `${gradeDisplay} ${subjDisplay} official digital textbook with complete ${sortedChapters.length}-chapter Table of Contents.`,
+        board: boardDisplay,
+        gradeLevel: [gradeDisplay],
+        subject: [subjDisplay],
+        medium: [mediumDisplay],
+        contentType: 'TextBook',
+        primaryCategory: 'Digital Textbook',
+        mimeType: 'application/pdf',
+        posterImage: first.posterImage || null,
+        pdfUrl: sortedChapters[0] ? sortedChapters[0].pdfUrl : first.pdfUrl,
+        proxyPdfUrl: sortedChapters[0] ? sortedChapters[0].proxyPdfUrl : first.proxyPdfUrl,
+        downloadUrl: sortedChapters[0] ? sortedChapters[0].downloadUrl : first.downloadUrl,
+        pdfValid: true,
+        isPrimaryTextbook: true,
+        badgeText: '⭐ Official Main Textbook',
+        isSynthesizedMaster: true,
+        chaptersCount: sortedChapters.length,
+        chapters: sortedChapters
+      };
+
+      const resObj = {
+        success: true,
+        bookId: synthId,
+        book: masterBook
+      };
+      cache.set(`book:${synthId}`, resObj);
+      cache.set(`book_resource:${synthId}`, resObj);
+
+      result.push(masterBook);
+    } else {
+      clusterBooks.forEach(b => result.push(b));
+    }
+  }
+
+  return result;
+}
+
+/**
  * Rank, score, tag, and filter search results so that FOR EACH SUBJECT,
  * there is exactly ONE (1) official primary textbook selected and badged.
  */
 function rankAndFilterBooks(books, requestedSubject = '', requestedGrade = '', requestedBoard = '', userQuery = '', requestedMedium = '', primaryOnly = false) {
   if (!Array.isArray(books) || books.length === 0) return [];
+
+  // Synthesize single-chapter PDF clusters into master textbooks before scoring
+  const synthBooks = synthesizeMasterTextbooks(books, requestedBoard, requestedGrade, requestedSubject);
 
   const isExplicitSearch = !!(userQuery && userQuery.trim().length > 0);
   const isPrimaryOnly = primaryOnly === true || primaryOnly === 'true' || primaryOnly === '1';
@@ -1227,14 +1381,14 @@ function rankAndFilterBooks(books, requestedSubject = '', requestedGrade = '', r
   // Noise filter: Reject supplementary items (experiments, comic books, workbooks, practice papers) unless explicitly searched for in userQuery
   const noiseRegex = /\b(experiment_\d+|experiment\b|comic book|lab manual|practical|creative and critical thinking|practice book|question bank|sample paper|testing_|workbook|work book|mathemagic|project-\d+|project_\d+|project\s+\d+|teacher handbook|pedagogy|lesson plan|activity book|solutions)\b/i;
 
-  const filteredBooks = books.filter(b => {
+  const filteredBooks = synthBooks.filter(b => {
     if (isExplicitSearch) return true; // Keep everything if user explicitly typed a keyword search
     const title = b.title || '';
     if (noiseRegex.test(title)) return false;
     return true;
   });
 
-  const candidatesToScore = filteredBooks.length > 0 ? filteredBooks : books;
+  const candidatesToScore = filteredBooks.length > 0 ? filteredBooks : synthBooks;
   const reqSubj = (requestedSubject || '').toLowerCase().trim();
   const reqMedium = (requestedMedium || '').toLowerCase().trim();
 
@@ -1277,13 +1431,17 @@ function rankAndFilterBooks(books, requestedSubject = '', requestedGrade = '', r
     const publisher = (book.publisher || '').toLowerCase();
     const primaryCategory = (book.primaryCategory || '').toLowerCase();
 
+    if (book.isSynthesizedMaster) {
+      score += 60; // Master synthesized textbook gets highest priority!
+    }
+
     // 1. Official Publisher Bonus
     if (publisher.includes('ncert') || publisher.includes('cbse') || publisher.includes('board') || publisher.includes('bureau') || publisher.includes('scert') || publisher.includes('textbook') || publisher.includes('samagra') || publisher.includes('state')) {
       score += 25;
     }
 
     // 2. Official Textbook Title Bonus
-    if (title.includes('textbook') || title.includes('पाठ्यपुस्तक') || title.includes('text book')) {
+    if (title.includes('textbook') || title.includes('पाठ्यपुस्तक') || title.includes('text book') || title.includes('संपूर्ण')) {
       score += 40;
     }
     if (title.includes('(new)')) {
